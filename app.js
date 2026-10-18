@@ -42,18 +42,20 @@
     catch(e) {/* Caching is optional; Google Sheets remains the source of truth. */}
   }
   function setTab(view) {
-    const settings = view==='settings';
-    $('#listView').hidden=settings;
-    $('#settingsView').hidden=!settings;
-    $('#listTab').classList.toggle('active',!settings);
-    $('#settingsTab').classList.toggle('active',settings);
-    $('#listTab').setAttribute('aria-selected',String(!settings));
-    $('#settingsTab').setAttribute('aria-selected',String(settings));
+    for(const name of ['list','stats','settings']) {
+      const current=name===view;
+      $('#'+name+'View').hidden=!current;
+      $('#'+name+'Tab').classList.toggle('active',current);
+      $('#'+name+'Tab').setAttribute('aria-selected',String(current));
+    }
+    if(view==='stats')renderStatistics();
   }
   function updateConnectedView() {
     const showList=state.connected||state.cached;
     $('#dashboard').hidden=!showList;
     $('#disconnected').hidden=showList;
+    $('#statsDashboard').hidden=!showList;
+    $('#statsDisconnected').hidden=showList;
     const hasPersistent=Boolean(safeRead(localStorage,storageKey));
     const hasSaved=hasPersistent||Boolean(safeRead(sessionStorage,oldSessionKey));
     const status=$('#secretStatus');
@@ -133,6 +135,107 @@
     categories.forEach(cat=>modal.add(new Option(cat,cat)));
     if([...modal.options].some(o=>o.value===modalSelected))modal.value=modalSelected;
   }
+  // v5 statistics: read only from the same state used by the checklist.
+  // Render on every state change, including optimistic check/uncheck and cached data.
+  function isPrepared(item) {
+    return item.status==='구매완료'||item.status==='선물받음';
+  }
+  function sumOf(items,key) {
+    return items.reduce((total,item)=>total+(Number(item[key])||0),0);
+  }
+  function summarize(items) {
+    const done=items.filter(isPrepared).length;
+    const remaining=items.filter(item=>!isPrepared(item));
+    return {
+      total:items.length,
+      done,
+      rate:items.length?Math.round(done/items.length*100):0,
+      estimated:sumOf(items,'estimate'),
+      spent:sumOf(items,'price'),
+      remaining:sumOf(remaining,'estimate')
+    };
+  }
+  function statEl(tag,cls,text) {
+    const el=document.createElement(tag);
+    if(cls)el.className=cls;
+    if(text!==undefined)el.textContent=String(text);
+    return el;
+  }
+  function meter(value,label,className='stats-meter') {
+    const track=statEl('div',className);
+    track.setAttribute('role','img');
+    track.setAttribute('aria-label',label);
+    const fill=statEl('div');
+    fill.style.width=Math.max(0,Math.min(100,value))+'%';
+    track.append(fill);
+    return track;
+  }
+  function renderStatistics() {
+    const priority=$('#statsPriority').value;
+    const scoped=priority?state.items.filter(i=>i.priority===priority):state.items;
+    const sum=summarize(scoped);
+    $('#statsProgressRate').textContent=sum.rate+'%';
+    $('#statsProgressCount').textContent=sum.done+' / '+sum.total+'개 준비 완료';
+    $('#statsProgressBar').style.width=sum.rate+'%';
+    $('#statsProgressTrack').setAttribute('aria-valuenow',String(sum.rate));
+    $('#statsEstimated').textContent=won(sum.estimated);
+    $('#statsSpent').textContent=won(sum.spent);
+    $('#statsRemaining').textContent=won(sum.remaining);
+    $('#statsForecast').textContent=won(sum.spent+sum.remaining);
+    const pending=state.pendingChecks.size;
+    $('#statsPendingLabel').textContent=pending
+      ? pending+'개 항목 저장 중 · 현재 통계는 저장 전 변경 사항을 포함합니다.'
+      : '구매완료와 선물받음을 준비 완료로 계산합니다.';
+    $('#statsSyncLabel').textContent=state.connected
+      ? 'Google Sheets 연결됨'+(pending?' · 저장 중…':'')
+      :state.cached?'기기 저장 목록 기준 · 최신 데이터 확인 중':'Google Sheets 연결 필요';
+    const cats=[...new Set(scoped.map(i=>i.category||'미분류'))];
+    const catRows=$('#statsCategoryRows'), spendRows=$('#statsSpendRows');
+    catRows.replaceChildren();spendRows.replaceChildren();
+    if(!scoped.length) {
+      catRows.append(statEl('p','stats-empty',state.items.length?'선택한 구분에 준비물이 없습니다.':'표시할 준비물이 없습니다.'));
+      spendRows.append(statEl('p','stats-empty','지출 내역이 없습니다.'));
+    }else{
+      for(const cat of cats) {
+        const subset=scoped.filter(i=>(i.category||'미분류')===cat);
+        const data=summarize(subset);
+        const row=statEl('div','stats-category-row');
+        const heading=statEl('div','stats-row-head');
+        heading.append(statEl('strong','',cat),statEl('span','',data.done+' / '+data.total+'개 · '+data.rate+'%'));
+        const amounts=statEl('p','stats-amount-line','예상 '+won(data.estimated)+'  ·  지출 '+won(data.spent));
+        row.append(heading,meter(data.rate,cat+' 준비 완료 '+data.rate+'%'),amounts);
+        catRows.append(row);
+      }
+      const spends=cats.map(cat=>({
+        cat,amount:sumOf(scoped.filter(i=>(i.category||'미분류')===cat),'price')
+      })).sort((a,b)=>b.amount-a.amount);
+      if(sum.spent===0) {
+        spendRows.append(statEl('p','stats-empty','실제 구매 금액을 입력하면 지출 비중이 표시됩니다.'));
+      } else {
+        for(const {cat,amount} of spends) {
+          if(amount<=0)continue;
+          const pct=100*amount/sum.spent;
+          const row=statEl('div','stats-spend-row');
+          const heading=statEl('div','stats-row-head');
+          heading.append(statEl('strong','',cat),statEl('span','',won(amount)+' · '+Math.round(pct)+'%'));
+          row.append(heading,meter(pct,cat+' 지출 비중 '+Math.round(pct)+'%','stats-meter spending'));
+          spendRows.append(row);
+        }
+      }
+    }
+    const priRows=$('#statsPriorityRows');
+    priRows.replaceChildren();
+    for(const label of ['필수','선택','나중']) {
+      const data=summarize(state.items.filter(i=>i.priority===label));
+      const row=statEl('div','stats-priority-row');
+      const left=statEl('div','stats-priority-left');
+      left.append(statEl('strong','',label),statEl('span','',data.done+'/'+data.total+'개 완료'));
+      const right=statEl('div','stats-priority-right');
+      right.append(statEl('strong','',won(data.spent)),statEl('span','','예상 '+won(data.estimated)));
+      row.append(left,right);priRows.append(row);
+    }
+  }
+
   function render() {
     const completed=state.items.filter(i=>i.status==='구매완료'||i.status==='선물받음').length;
     $('#progress').textContent=completed+' / '+state.items.length;
@@ -167,6 +270,7 @@
       const edit=document.createElement('button');edit.type='button';edit.className='edit';edit.textContent='수정';edit.disabled=state.saving||!state.connected||pending;edit.addEventListener('click',()=>openEditor(i));
       item.append(chk,info,edit);wrap.append(item);
     }
+    renderStatistics();
   }
   async function load(showMessage=true) {
     const items=await getItems();
@@ -374,8 +478,12 @@
     finally{state.saving=false;render();}
   }
   $('#listTab').addEventListener('click',()=>setTab('list'));
+  $('#statsTab').addEventListener('click',()=>setTab('stats'));
   $('#settingsTab').addEventListener('click',()=>setTab('settings'));
   $('#goSettingsBtn').addEventListener('click',()=>setTab('settings'));
+  $('#statsGoSettingsBtn').addEventListener('click',()=>setTab('settings'));
+  $('#statsPriority').addEventListener('change',renderStatistics);
+  $('#statsRefreshBtn').addEventListener('click',()=>$('#refreshBtn').click());
   $('#settingsForm').addEventListener('submit',e=>{
     e.preventDefault();
     const secret=$('#secretInput').value;
@@ -394,7 +502,7 @@
     safeRemove(sessionStorage,oldSessionKey);
     state.secret='';state.items=[];state.connected=false;state.cached=false;state.pendingChecks.clear();
     $('#secretInput').value='';
-    updateConnectedView();setTab('settings');
+    updateConnectedView();render();setTab('settings');
     notify('이 기기에 저장된 SECRET을 삭제하고 연결을 해제했습니다.','success');
   });
   $('#refreshBtn').addEventListener('click',async()=>{

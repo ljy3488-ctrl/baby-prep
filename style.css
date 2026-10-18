@@ -52,3 +52,50 @@ footer{text-align:center;font-size:12px;color:#9ba2ae;line-height:1.6;margin-top
 .item.pending{border-color:#d7c9e9}
 .item.pending .check{outline:2px solid #dbcdea;outline-offset:2px}
 .item.pending .item-meta{color:#8b6bab}
+
+
+/* BabyPrep v5: statistics tab and budget breakdown */
+.tabs{grid-template-columns:repeat(3,minmax(0,1fr))}
+.stats-topline{display:flex;justify-content:space-between;align-items:center;gap:9px;margin:4px 0 14px;font-size:12px;color:#838b99}
+.stats-topline button{border:1px solid #e3e1ed;background:#fff;border-radius:9px;padding:9px 12px;color:#735991;font-size:12px;font-weight:700;cursor:pointer}
+.stats-heading{display:flex;align-items:end;justify-content:space-between;gap:12px;margin:0 0 16px}
+.stats-heading h2{font-size:20px;margin:0 0 6px;letter-spacing:-.5px}
+.stats-heading p{font-size:12px;margin:0;color:#8290a1;line-height:1.5}
+.stats-filter{display:grid;gap:5px;min-width:115px;font-size:11px;color:#78869a;flex:none}
+.stats-filter select{padding:9px 7px;font-size:12px;background:#fff}
+.stats-hero{background:linear-gradient(115deg,#8062a9,#a387c8);color:#fff;border-radius:19px;padding:19px 20px 17px;margin-bottom:12px}
+.stats-hero-top{display:flex;align-items:center;justify-content:space-between;font-size:13px;opacity:.95}
+.stats-hero-top strong{font-size:27px;letter-spacing:-.5px}
+.stats-hero-count{font-size:15px;font-weight:800;margin-top:3px}
+.stats-progress-track{height:9px;background:#ffffff45;border-radius:20px;overflow:hidden;margin:14px 0 10px}
+.stats-progress-track>div{height:100%;width:0;border-radius:20px;background:#fff;transition:width .18s}
+.stats-footnote{font-size:11px;line-height:1.5;color:#f1eafb;margin:0}
+.stats-kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:17px}
+.stats-kpi{min-width:0;padding:16px 13px;background:#fff;border:1px solid #f0edf5;border-radius:16px;box-shadow:0 3px 14px #29334506}
+.stats-kpi>span{display:block;color:#7b8494;font-size:12px;font-weight:650}
+.stats-kpi>strong{display:block;color:#30364a;font-size:clamp(18px,5vw,24px);letter-spacing:-.6px;overflow-wrap:anywhere;margin:10px 0 7px}
+.stats-kpi>small{display:block;color:#939cab;font-size:10.5px;line-height:1.5}
+.stats-kpi.forecast{background:#f0eaf7;border-color:#e6daee}
+.stats-kpi.forecast>strong{color:#70508e}
+.stats-panel{border:1px solid #efebf4;background:#fff;border-radius:18px;padding:18px 15px;margin-bottom:13px}
+.stats-panel-title{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding-bottom:12px}
+.stats-panel-title h3{font-size:16px;margin:0}
+.stats-panel-title small{font-size:10px;color:#959ead;text-align:right}
+.stats-category-rows,.stats-spend-rows,.stats-priority-rows{display:grid;gap:0}
+.stats-category-row,.stats-spend-row{padding:13px 0;border-top:1px solid #f2eef6}
+.stats-row-head{display:flex;justify-content:space-between;align-items:center;gap:9px;margin-bottom:10px}
+.stats-row-head strong{font-size:13px;min-width:0;overflow-wrap:anywhere}
+.stats-row-head span{font-size:11px;color:#788399;text-align:right;flex:none}
+.stats-meter{height:8px;width:100%;border-radius:99px;background:#efedf4;overflow:hidden}
+.stats-meter>div{height:100%;background:#9b80c5;border-radius:99px}
+.stats-meter.spending>div{background:#7fa99a}
+.stats-amount-line{font-size:11px;color:#8390a1;margin:9px 0 0}
+.stats-priority-row{border-top:1px solid #f2eef6;padding:13px 0;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.stats-priority-left,.stats-priority-right{display:grid;gap:4px}
+.stats-priority-left strong{font-size:13px}
+.stats-priority-left span,.stats-priority-right span{font-size:11px;color:#8792a1}
+.stats-priority-right{text-align:right}
+.stats-priority-right strong{font-size:14px}
+.stats-empty{margin:4px 0;padding:13px;border-radius:11px;background:#f8f7fb;color:#7f899a;font-size:12px;line-height:1.5}
+.stats-disclaimer{margin:16px 3px 0;font-size:11px;color:#8c97a8;line-height:1.7}
+@media(max-width:390px){.tab{font-size:12px;padding:11px 4px}.stats-heading{align-items:start;gap:7px}.stats-heading h2{font-size:18px}.stats-kpi{padding:14px 11px}.stats-kpi>strong{font-size:18px}.stats-panel{padding:16px 12px}.stats-row-head span{font-size:10px}}
