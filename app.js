@@ -7,9 +7,10 @@
   const storageKey = 'bp-device-secret-v2';
   const oldSessionKey = 'bp-active-secret-v1';
   const cacheKey = 'bp-items-cache-v3';
-  const journalKey = 'bp-pending-edits-v9';
+  const journalKey = 'bp-pending-edits-v9'; // retain v9 queue across updates
+  const categoryExpandKey='bp-expanded-categories-v10';
   const state = {items: [], secret:'', connected:false, cached:false, active:null, pendingChecks:new Map(),
-    pendingEdits:new Map(), mutationQueue:[], mutationBusy:false, mutationFailed:false};
+    pendingEdits:new Map(), mutationQueue:[], mutationBusy:false, mutationFailed:false, expanded:new Map(), drag:null};
   const builtInCategories=['의류·침구','수유','수면','위생','목욕','외출','생활·산모','추후 구매'];
   const API = String(window.BABY_PREP_API_URL || '').trim();
 
@@ -123,7 +124,7 @@
       id:String(r.ID||''), category:String(r['카테고리']||''),name:String(r['품목']||''),
       priority:String(r['우선순위']||''),purchaseQty:Number(r['구매수량']||0),
       status:String(r['구매상태']==='선물받음'?'구매완료':r['구매상태']||'미구매'),price:Number(r['실제금액']||0),
-      product:String(r['구매제품']||''),memo:String(r['메모']||''),updated:String(r['수정일시']||'')
+      product:String(r['구매제품']||''),memo:String(r['메모']||''),updated:String(r['수정일시']||''),order:Number(r['정렬순서']||0)
     }));
   }
   function drawCategories() {
@@ -236,43 +237,173 @@
     }
   }
 
+  function compareItems(a,b) {
+    const ao=Number(a.order),bo=Number(b.order);
+    const x=Number.isFinite(ao)&&ao>0?ao:Number.MAX_SAFE_INTEGER;
+    const y=Number.isFinite(bo)&&bo>0?bo:Number.MAX_SAFE_INTEGER;
+    return x-y || a.name.localeCompare(b.name,'ko');
+  }
+  function categoryNames(items) {
+    const all=[...new Set(items.map(i=>i.category||'미분류'))];
+    return all.sort((a,b)=>{
+      const ia=builtInCategories.indexOf(a),ib=builtInCategories.indexOf(b);
+      if(ia<0&&ib<0)return a.localeCompare(b,'ko');
+      return (ia<0?999:ia)-(ib<0?999:ib);
+    });
+  }
+  function categoryExpanded(cat,first,filtersActive) {
+    if(state.expanded.has(cat))return state.expanded.get(cat);
+    // Open the first group initially; when filtering, open results for convenience.
+    return filtersActive||first;
+  }
+  function saveExpanded() {
+    try {localStorage.setItem(categoryExpandKey,JSON.stringify([...state.expanded.entries()]));}catch(e){}
+  }
+  function setExpanded(cat,expanded) {
+    state.expanded.set(cat,expanded);saveExpanded();render();
+  }
+  function buildItem(i,allowDrag) {
+    const complete=isPrepared(i);
+    const pending=state.pendingChecks.has(i.id)||state.pendingEdits.has(i.id);
+    const item=document.createElement('article');
+    item.className='item'+(complete?' done':'')+(pending?' pending':'');
+    item.dataset.itemId=i.id;
+    const chk=document.createElement('button');chk.type='button';chk.className='check';chk.textContent=complete?'✓':'';
+    chk.setAttribute('aria-label',i.name+(complete?' 완료 해제':' 구매 완료'));
+    chk.setAttribute('aria-busy',String(pending));
+    chk.disabled=state.pendingEdits.has(i.id)||!state.connected;
+    chk.addEventListener('click',()=>toggleCheck(i.id));
+    const info=document.createElement('div');info.className='item-content';
+    const title=document.createElement('div');title.className='item-title';title.textContent=i.name;
+    const meta=document.createElement('div');meta.className='item-meta';meta.textContent=`${i.priority} · ${i.status}${pending?' · 저장 중…':''}`;
+    const price=document.createElement('div');price.className='item-price';price.textContent=`구매 금액 ${won(i.price)} · 구매 수량 ${i.purchaseQty||0}개`;
+    info.append(title,meta,price);
+    if(i.product||i.memo){const note=document.createElement('div');note.className='item-note';note.textContent=[i.product,i.memo].filter(Boolean).join(' · ');info.append(note);}
+    const edit=document.createElement('button');edit.type='button';edit.className='edit';edit.textContent='수정';edit.disabled=!state.connected||pending;edit.addEventListener('click',()=>openEditor(i));
+    const grip=document.createElement('button');grip.type='button';grip.className='drag-handle';grip.textContent='⠿';
+    grip.setAttribute('aria-label',i.name+' 순서 이동');grip.title='손으로 끌어 순서 바꾸기';
+    grip.disabled=!allowDrag;
+    grip.addEventListener('pointerdown',e=>beginDrag(e,item,i.category));
+    // Keyboard access: move within the category using Alt+Up/Down.
+    grip.addEventListener('keydown',e=>{
+      if(!allowDrag||!e.altKey||!['ArrowUp','ArrowDown'].includes(e.key))return;
+      e.preventDefault();
+      const container=item.parentElement;
+      const list=[...container.querySelectorAll(':scope > .item')];
+      const index=list.indexOf(item),to=index+(e.key==='ArrowUp'?-1:1);
+      if(to<0||to>=list.length)return;
+      const ids=list.map(node=>node.dataset.itemId);
+      [ids[index],ids[to]]=[ids[to],ids[index]];
+      queueReorder(i.category,ids);
+    });
+    item.append(chk,info,edit,grip);
+    return item;
+  }
   function render() {
     const completed=state.items.filter(isPrepared).length;
     $('#progress').textContent=completed+' / '+state.items.length;
     $('#bar').style.width=(state.items.length?100*completed/state.items.length:0)+'%';
     $('#spent').textContent=won(state.items.reduce((v,i)=>v+(Number(i.price)||0),0));
     $('#purchaseQtyTotal').textContent='구매 수량 '+sumOf(state.items,'purchaseQty').toLocaleString('ko-KR')+'개';
-    const q=$('#search').value.trim().toLowerCase(),cat=$('#category').value, priority=$('#priority').value, status=$('#status').value;
+    const q=$('#search').value.trim().toLowerCase(),cat=$('#category').value,priority=$('#priority').value,status=$('#status').value;
+    const filtersActive=!!(q||priority||status);
     const selected=state.items.filter(i=>(!cat||i.category===cat)&&(!priority||i.priority===priority)&&(!status||i.status===status)&&(!q||(i.name+' '+i.product+' '+i.memo).toLowerCase().includes(q)));
     $('#count').textContent=selected.length+'개 표시';
     const wrap=$('#items');wrap.replaceChildren();
-    if (!selected.length) {
-      const empty=document.createElement('div');
-      empty.className='filter-empty';
+    const allowDrag=state.connected&&!filtersActive;
+    $('#dragHint').textContent=filtersActive
+      ? '드래그 순서 변경은 검색어·구분·상태 필터를 해제하면 가능합니다.'
+      : '⠿ 손잡이를 끌어 같은 카테고리 안에서 순서를 변경하세요.';
+    if(!selected.length){
+      const empty=document.createElement('div');empty.className='filter-empty';
       empty.textContent=state.items.length?'선택한 조건에 해당하는 준비물이 없습니다.':'표시할 준비물이 없습니다.';
       wrap.append(empty);
     }
-    for(const i of selected){
-      const complete=isPrepared(i);
-      const pendingCheck=state.pendingChecks.has(i.id);
-      const pendingEdit=state.pendingEdits.has(i.id);
-      const pending=pendingCheck||pendingEdit;
-      const item=document.createElement('article');item.className='item'+(complete?' done':'')+(pending?' pending':'');
-      const chk=document.createElement('button');chk.type='button';chk.className='check';chk.textContent=complete?'✓':'';
-      chk.setAttribute('aria-label',i.name+(complete?' 완료 해제':' 구매 완료'));
-      chk.setAttribute('aria-busy',String(pending));
-      chk.disabled=pendingEdit||!state.connected;
-      chk.addEventListener('click',()=>toggleCheck(i.id));
-      const info=document.createElement('div');info.className='item-content';
-      const title=document.createElement('div');title.className='item-title';title.textContent=i.name;
-      const meta=document.createElement('div');meta.className='item-meta';meta.textContent=`${i.category} · ${i.priority} · ${i.status}${pending?' · 저장 중…':''}`;
-      const price=document.createElement('div');price.className='item-price';price.textContent=`구매 금액 ${won(i.price)} · 구매 수량 ${i.purchaseQty||0}개`;
-      info.append(title,meta,price);
-      if(i.product || i.memo){const note=document.createElement('div');note.className='item-note';note.textContent=[i.product,i.memo].filter(Boolean).join(' · ');info.append(note);}
-      const edit=document.createElement('button');edit.type='button';edit.className='edit';edit.textContent='수정';edit.disabled=!state.connected||pending;edit.addEventListener('click',()=>openEditor(i));
-      item.append(chk,info,edit);wrap.append(item);
+    const cats=categoryNames(selected);
+    for(let ci=0;ci<cats.length;ci++){
+      const category=cats[ci];
+      const subset=selected.filter(i=>(i.category||'미분류')===category).sort(compareItems);
+      const done=subset.filter(isPrepared).length;
+      const section=document.createElement('section');section.className='category-group';
+      const opened=categoryExpanded(category,ci===0,filtersActive);
+      if(opened)section.classList.add('expanded');
+      const heading=document.createElement('button');heading.type='button';heading.className='category-heading';
+      heading.setAttribute('aria-expanded',String(opened));
+      heading.append(statEl('span','category-arrow','▾'),statEl('strong','category-name',category),statEl('span','category-count',`${done}/${subset.length} 완료`));
+      heading.addEventListener('click',()=>setExpanded(category,!categoryExpanded(category,ci===0,filtersActive)));
+      const list=document.createElement('div');list.className='category-list';list.dataset.category=category;list.hidden=!opened;
+      for(const i of subset)list.append(buildItem(i,allowDrag));
+      section.append(heading,list);wrap.append(section);
     }
     renderStatistics();
+  }
+  function queueReorder(category,ids) {
+    if(!state.connected)return false;
+    const expected=state.items.filter(i=>i.category===category).sort(compareItems).map(i=>i.id);
+    if(ids.length!==expected.length || new Set(ids).size!==ids.length || ids.some(id=>!expected.includes(id))){
+      notify('필터가 적용된 상태에서는 순서를 바꿀 수 없습니다. 새로고침 후 다시 시도하세요.','error');return false;
+    }
+    if(expected.every((id,idx)=>id===ids[idx]))return true;
+    const job={action:'reorder',id:'ORDER-'+nonce().slice(0,16).toUpperCase(),item:{category,ids:[...ids]}};
+    state.mutationQueue.push(job);
+    state.pendingEdits.set(job.id,job);
+    saveJournal();
+    applyOrder(state.items,category,ids);
+    render();updateConnectedView();updateQueueView();
+    notify('순서를 먼저 바꿨습니다. Google Sheets에 저장 중…','info');
+    void drainMutationQueue();
+    return true;
+  }
+  function applyOrder(items,category,ids) {
+    const byId=new Map(items.filter(i=>i.category===category).map(i=>[i.id,i]));
+    ids.forEach((id,index)=>{const it=byId.get(id);if(it)it.order=index+1;});
+  }
+  function beginDrag(e,item,category) {
+    if(e.pointerType==='mouse'&&e.button!==0)return;
+    if(!state.connected||state.drag)return;
+    const list=item.parentElement;
+    if(!list||list.hidden)return;
+    e.preventDefault();
+    const rect=item.getBoundingClientRect();
+    const drag={pointerId:e.pointerId,item,list,category,startY:e.clientY,startX:e.clientX,
+      offsetY:e.clientY-rect.top,offsetX:e.clientX-rect.left,width:rect.width,left:rect.left,active:false,ghost:null};
+    state.drag=drag;
+    const move=ev=>{
+      if(ev.pointerId!==drag.pointerId)return;
+      if(!drag.active&&Math.hypot(ev.clientX-drag.startX,ev.clientY-drag.startY)<5)return;
+      if(!drag.active){
+        drag.active=true;
+        item.classList.add('drag-source');
+        drag.ghost=item.cloneNode(true);drag.ghost.classList.remove('drag-source');
+        drag.ghost.classList.add('drag-ghost');drag.ghost.style.width=drag.width+'px';
+        document.body.append(drag.ghost);
+      }
+      ev.preventDefault();
+      drag.ghost.style.top=(ev.clientY-drag.offsetY)+'px';
+      drag.ghost.style.left=drag.left+'px';
+      const siblings=[...list.querySelectorAll(':scope > .item')].filter(node=>node!==item);
+      const before=siblings.find(node=>ev.clientY<node.getBoundingClientRect().top+node.getBoundingClientRect().height/2);
+      if(before)list.insertBefore(item,before);else list.append(item);
+      if(ev.clientY>window.innerHeight-65)window.scrollBy(0,14);
+      else if(ev.clientY<70)window.scrollBy(0,-14);
+    };
+    const finish=ev=>{
+      if(ev.pointerId!==drag.pointerId)return;
+      window.removeEventListener('pointermove',move);
+      window.removeEventListener('pointerup',finish);
+      window.removeEventListener('pointercancel',finish);
+      if(drag.ghost)drag.ghost.remove();
+      item.classList.remove('drag-source');
+      state.drag=null;
+      if(ev.type==='pointercancel'){render();return;}
+      if(drag.active){
+        const ids=[...list.querySelectorAll(':scope > .item')].map(node=>node.dataset.itemId);
+        if(!queueReorder(category,ids))render();
+      }
+    };
+    window.addEventListener('pointermove',move,{passive:false});
+    window.addEventListener('pointerup',finish);
+    window.addEventListener('pointercancel',finish);
   }
   async function load(showMessage=true) {
     const items=await getItems();
@@ -339,6 +470,7 @@
     const merged=serverItems.map(item=>({...item}));
     for(const job of state.mutationQueue){
       const at=merged.findIndex(item=>item.id===job.id);
+      if(job.action==='reorder'){applyOrder(merged,job.item.category,job.item.ids);continue;}
       if(job.action==='delete'){if(at!==-1)merged.splice(at,1);}
       else if(at!==-1)merged[at]={...merged[at],...job.item,id:job.id};
       else merged.push({...job.item,id:job.id});
@@ -460,6 +592,10 @@
   }
   function matchesItem(serverItems,job) {
     const actual=serverItems.find(i=>i.id===job.id);
+    if(job.action==='reorder'){
+      const ids=serverItems.filter(i=>i.category===job.item.category).sort(compareItems).map(i=>i.id);
+      return ids.length===job.item.ids.length&&ids.every((id,at)=>id===job.item.ids[at]);
+    }
     if(job.action==='delete')return !actual;
     if(!actual)return false;
     return ['name','category','priority','purchaseQty','status','price','product','memo']
@@ -482,8 +618,13 @@
       const saved=JSON.parse(localStorage.getItem(journalKey)||'null');
       if(!saved || saved.api!==API || !Array.isArray(saved.jobs))return;
       for(const job of saved.jobs.slice(0,50)) {
-        if(!job || !['edit','add','delete'].includes(job.action) ||
-            !/^BABY-(?:\d{3}|[A-F0-9]{16})$/.test(String(job.id||'')) ||
+        if(!job || !['edit','add','delete','reorder'].includes(job.action))continue;
+        const isOrder=job.action==='reorder';
+        if(isOrder) {
+          if(!/^ORDER-[A-F0-9]{16}$/.test(String(job.id||'')) || !job.item ||
+            !builtInCategories.includes(job.item.category) || !Array.isArray(job.item.ids) ||
+            job.item.ids.length>500 || job.item.ids.some(id=>!/^BABY-(?:\d{3}|[A-F0-9]{16})$/.test(String(id))))continue;
+        } else if(!/^BABY-(?:\d{3}|[A-F0-9]{16})$/.test(String(job.id||'')) ||
             (job.action!=='delete' && (!job.item || typeof job.item!=='object')))continue;
         if(state.pendingEdits.has(job.id))continue;
         const entry={action:job.action,id:job.id,item:job.item||null};
@@ -506,8 +647,15 @@
   function optimisticMutation(action,id,item) {
     const previous=state.items.find(row=>row.id===id);
     if(action==='delete')state.items=state.items.filter(row=>row.id!==id);
-    else if(action==='add')state.items.push({...item,id});
-    else state.items=state.items.map(row=>row.id===id?{...row,...item}:row);
+    else if(action==='add'){
+      const max=Math.max(0,...state.items.filter(x=>x.category===item.category).map(x=>Number(x.order)||0));
+      state.items.push({...item,id,order:max+1});
+    }else state.items=state.items.map(row=>{
+      if(row.id!==id)return row;
+      const changedCategory=row.category!==item.category;
+      const max=Math.max(0,...state.items.filter(x=>x.category===item.category).map(x=>Number(x.order)||0));
+      return {...row,...item,order:changedCategory?max+1:row.order};
+    });
   }
   // Apply immediately; enqueue network writes and verification asynchronously.
   function queueMutation(action,id,item) {
@@ -547,7 +695,7 @@
         }catch(ignored){}
         if(!serverItems){
           let postError=null;
-          try {await sendMutation(job.action,job.action==='delete'?{id:job.id}:{id:job.id,item:job.item});}
+          try {await sendMutation(job.action,job.action==='delete'?{id:job.id}:job.action==='reorder'?job.item:{id:job.id,item:job.item});}
           catch(e){postError=e;}
           try {serverItems=await confirmMutation(job);}
           catch(e){throw postError||e;}
@@ -568,6 +716,8 @@
       updateQueueView();
     }
   }
+  $('#expandAllBtn').addEventListener('click',()=>{for(const cat of categoryNames(state.items))state.expanded.set(cat,true);saveExpanded();render();});
+  $('#collapseAllBtn').addEventListener('click',()=>{for(const cat of categoryNames(state.items))state.expanded.set(cat,false);saveExpanded();render();});
   $('#listTab').addEventListener('click',()=>setTab('list'));
   $('#statsTab').addEventListener('click',()=>setTab('stats'));
   $('#settingsTab').addEventListener('click',()=>setTab('settings'));
@@ -631,6 +781,9 @@
     if(queueMutation('delete',id,null))$('#editor').close();
   });
   for(const id of ['search','category','priority','status'])$('#'+id).addEventListener(id==='search'?'input':'change',render);
+  try{const old=JSON.parse(safeRead(localStorage,categoryExpandKey)||'[]');
+    if(Array.isArray(old))for(const [key,value] of old){if(typeof key==='string'&&typeof value==='boolean')state.expanded.set(key,value);}
+  }catch(e){}
   restoreJournal();
   updateQueueView();
   updateConnectedView();

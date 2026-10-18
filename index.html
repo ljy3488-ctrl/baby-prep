@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>우리 아기 준비 현황</title>
-  <!-- BabyPrep v9: immediate form saves and background Google Sheets sync -->
+  <!-- BabyPrep v10: category accordions and touch drag sorting, cloud-persisted order -->
   <!-- BabyPrep v6: home screen icons on Android and iOS -->
   <meta name="theme-color" content="#9a83c7">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -15,9 +15,9 @@
   <link rel="icon" type="image/svg+xml" href="favicon.svg?v=6">
   <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=6">
   <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png?v=6">
-  <link rel="stylesheet" href="style.css?v=9">
+  <link rel="stylesheet" href="style.css?v=10">
   <script src="config.js" defer></script>
-  <script src="app.js?v=9" defer></script>
+  <script src="app.js?v=10" defer></script>
 </head>
 <body>
 <main class="wrap">
@@ -54,9 +54,13 @@
         <div class="stat"><small>구매 금액</small><strong id="spent">0원</strong><span id="purchaseQtyTotal">구매 수량 0개</span></div>
       </section>
       <section class="controls"><input id="search" type="search" placeholder="준비물 검색" aria-label="준비물 검색"><div class="filters"><select id="category" aria-label="카테고리"><option value="">전체 카테고리</option></select><select id="priority" aria-label="필수 선택 구분"><option value="">전체 구분</option><option value="필수">필수</option><option value="선택">선택</option><option value="나중">나중</option></select><select id="status" aria-label="구매 상태"><option value="">전체 상태</option><option>미구매</option><option>구매완료</option><option>보류</option></select></div></section>
-      <div class="section-title"><h2>준비물 목록</h2><span id="count">0개 표시</span></div>
-      <div id="items" class="items"></div>
-      <footer>저장 버튼을 누르면 화면에 먼저 반영됩니다. ‘저장 중’ 표시가 사라져야 Google Sheets 반영까지 완료된 것입니다.</footer>
+      <div class="section-title"><h2>카테고리별 준비물</h2><span id="count">0개 표시</span></div>
+      <div class="group-toolbar" id="groupControls">
+        <span class="group-hint" id="dragHint">⠿ 손잡이를 끌어 같은 카테고리 안에서 순서를 변경할 수 있어요.</span>
+        <div class="group-actions"><button type="button" id="expandAllBtn">모두 펼치기</button><button type="button" id="collapseAllBtn">모두 접기</button></div>
+      </div>
+      <div id="items" class="category-groups"></div>
+      <footer>카테고리 제목을 누르면 목록이 열리고 닫힙니다. 품목의 ⠿ 손잡이로 같은 카테고리 안에서 순서를 변경할 수 있습니다. 카테고리 이동은 수정 메뉴에서 변경하세요.<br>저장 버튼을 누르면 화면에 먼저 반영됩니다. ‘저장 중’ 표시가 사라져야 Google Sheets 반영까지 완료된 것입니다.</footer>
     </div>
   </section>
 
