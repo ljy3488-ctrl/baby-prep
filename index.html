@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f7f6fb">
   <title>우리 아기 준비 현황</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=2">
   <script src="config.js" defer></script>
-  <script src="app.js" defer></script>
+  <script src="app.js?v=2" defer></script>
 </head>
 <body>
 <main class="wrap">
@@ -17,31 +17,52 @@
     <p>함께 준비하는 우리 아기의 첫 물건들</p>
   </header>
 
+  <nav class="tabs" role="tablist" aria-label="웹앱 메뉴">
+    <button id="listTab" type="button" role="tab" aria-selected="true" aria-controls="listView" class="tab active">🧺 준비물</button>
+    <button id="settingsTab" type="button" role="tab" aria-selected="false" aria-controls="settingsView" class="tab">⚙️ 설정</button>
+  </nav>
+
   <div id="message" class="message" role="status" aria-live="polite"></div>
 
-  <section id="loginPanel" class="login-card">
-    <div class="login-icon">🔐</div>
-    <h2>가족 준비 목록 연결</h2>
-    <p>두 분이 정한 SECRET을 입력하면 Google Sheets의 준비물 목록을 불러옵니다.</p>
-    <form id="connectForm">
-      <label for="secretInput">공유 SECRET</label>
-      <input id="secretInput" type="password" minlength="16" required autocomplete="off" spellcheck="false" placeholder="Apps Script에 등록한 SECRET">
-      <button type="submit" id="connectBtn" class="primary">연결하기</button>
-    </form>
-    <div class="hint">SECRET은 공개 GitHub 파일에 저장되지 않습니다. 현재 브라우저 탭의 세션에만 보관됩니다.</div>
+  <section id="listView" role="tabpanel" aria-labelledby="listTab">
+    <section id="disconnected" class="login-card">
+      <div class="login-icon">🔐</div>
+      <h2>Google Sheets 연결이 필요해요</h2>
+      <p>상단 <strong>설정</strong> 탭에서 SECRET KEY를 저장하면 준비물 목록을 불러옵니다. 다음 접속부터는 자동으로 연결됩니다.</p>
+      <button type="button" id="goSettingsBtn" class="primary">설정에서 연결하기</button>
+    </section>
+
+    <div id="dashboard" hidden>
+      <div class="toolbar"><span id="syncLabel">Google Sheets 연동</span><div class="toolbar-actions"><button id="refreshBtn" type="button">↻ 새로고침</button></div></div>
+      <section class="stats">
+        <div class="stat"><small>준비 완료</small><strong id="progress">0 / 0</strong><div class="track"><div id="bar"></div></div></div>
+        <div class="stat"><small>실제 구매 금액</small><strong id="spent">0원</strong><span id="estimate">필수 예상 0원</span></div>
+      </section>
+      <section class="controls"><input id="search" type="search" placeholder="준비물 검색" aria-label="준비물 검색"><div class="filters"><select id="category" aria-label="카테고리"><option value="">전체 카테고리</option></select><select id="status" aria-label="구매 상태"><option value="">전체 상태</option><option>미구매</option><option>구매완료</option><option>선물받음</option><option>보류</option></select></div></section>
+      <div class="section-title"><h2>준비물 목록</h2><span id="count">0개 표시</span></div>
+      <div id="items" class="items"></div>
+      <footer>수정 사항은 Google Sheets에 저장됩니다. 다른 기기에서는 새로고침으로 확인하세요.</footer>
+    </div>
   </section>
 
-  <div id="dashboard" hidden>
-    <div class="toolbar"><span id="syncLabel">Google Sheets 연동</span><div class="toolbar-actions"><button id="refreshBtn" type="button">↻ 새로고침</button><button id="logoutBtn" type="button">연결 해제</button></div></div>
-    <section class="stats">
-      <div class="stat"><small>준비 완료</small><strong id="progress">0 / 0</strong><div class="track"><div id="bar"></div></div></div>
-      <div class="stat"><small>실제 구매 금액</small><strong id="spent">0원</strong><span id="estimate">필수 예상 0원</span></div>
+  <section id="settingsView" role="tabpanel" aria-labelledby="settingsTab" hidden>
+    <section class="login-card settings-card">
+      <div class="login-icon">⚙️</div>
+      <h2>연결 설정</h2>
+      <p>Google Sheets 공유를 위한 SECRET KEY를 이 기기에 저장합니다.</p>
+      <div id="secretStatus" class="connection-status" role="status" aria-live="polite">설정 확인 중…</div>
+      <form id="settingsForm">
+        <label for="secretInput">SECRET KEY</label>
+        <div class="secret-field">
+          <input id="secretInput" type="password" minlength="16" required autocomplete="off" spellcheck="false" placeholder="Apps Script에 등록한 SECRET">
+          <button id="toggleSecretBtn" type="button" aria-label="SECRET 표시" aria-pressed="false">표시</button>
+        </div>
+        <button type="submit" id="saveSecretBtn" class="primary">저장하고 연결하기</button>
+      </form>
+      <button type="button" id="forgetSecretBtn" class="outline-danger">저장된 SECRET 삭제 · 연결 해제</button>
+      <div class="hint">저장한 SECRET은 GitHub가 아니라 <strong>현재 기기의 브라우저 저장소</strong>에 보관됩니다. 브라우저에 암호화 없이 저장되므로 공용 기기에서는 사용하지 마세요. 삭제하면 자동 연결이 해제됩니다.</div>
     </section>
-    <section class="controls"><input id="search" type="search" placeholder="준비물 검색" aria-label="준비물 검색"><div class="filters"><select id="category" aria-label="카테고리"><option value="">전체 카테고리</option></select><select id="status" aria-label="구매 상태"><option value="">전체 상태</option><option>미구매</option><option>구매완료</option><option>선물받음</option><option>보류</option></select></div></section>
-    <div class="section-title"><h2>준비물 목록</h2><span id="count">0개 표시</span></div>
-    <div id="items" class="items"></div>
-    <footer>수정 사항은 Google Sheets에 저장됩니다. 다른 기기에서는 새로고침으로 확인하세요.</footer>
-  </div>
+  </section>
 </main>
 
 <dialog id="editor">

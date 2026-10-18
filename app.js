@@ -3,9 +3,50 @@
   'use strict';
   const $ = s => document.querySelector(s);
   const won = n => Number(n || 0).toLocaleString('ko-KR') + '원';
-  const sessionKey = 'bp-active-secret-v1';
-  const state = {items: [], secret: sessionStorage.getItem(sessionKey) || '', saving:false, active:null};
+  // Keep the API URL in config.js, and store the user's SECRET only on this device.
+  const storageKey = 'bp-device-secret-v2';
+  const oldSessionKey = 'bp-active-secret-v1';
+  const state = {items: [], secret:'', connected:false, saving:false, active:null};
   const API = String(window.BABY_PREP_API_URL || '').trim();
+
+  function safeRead(store,key) {
+    try { return store.getItem(key) || ''; } catch(e) { return ''; }
+  }
+  function safeRemove(store,key) {
+    try {store.removeItem(key);} catch(e) {}
+  }
+  function persistSecret(secret) {
+    try {
+      localStorage.setItem(storageKey,secret);
+      safeRemove(sessionStorage,oldSessionKey);
+      return true;
+    } catch(e) {
+      // Private mode / blocked local storage: keep this session connected only.
+      try {sessionStorage.setItem(oldSessionKey,secret);} catch(ignored) {}
+      return false;
+    }
+  }
+  function setTab(view) {
+    const settings = view==='settings';
+    $('#listView').hidden=settings;
+    $('#settingsView').hidden=!settings;
+    $('#listTab').classList.toggle('active',!settings);
+    $('#settingsTab').classList.toggle('active',settings);
+    $('#listTab').setAttribute('aria-selected',String(!settings));
+    $('#settingsTab').setAttribute('aria-selected',String(settings));
+  }
+  function updateConnectedView() {
+    $('#dashboard').hidden=!state.connected;
+    $('#disconnected').hidden=state.connected;
+    const hasSaved=Boolean(safeRead(localStorage,storageKey)||safeRead(sessionStorage,oldSessionKey));
+    const status=$('#secretStatus');
+    status.className='connection-status'+(state.connected?' connected':'');
+    status.textContent=state.connected
+      ? `연결됨 · 준비물 ${state.items.length}개 · 이 기기에 SECRET ${hasSaved?'저장됨':'저장 확인 필요'}`
+      : hasSaved?'저장된 SECRET이 있습니다. 연결 상태를 확인해 주세요.':'SECRET이 등록되지 않았습니다.';
+    $('#forgetSecretBtn').disabled=!hasSaved&&!state.connected;
+  }
+
 
   function notify(text,kind='info') {
     const el=$('#message');el.textContent=text;el.className='message show '+kind;
@@ -99,16 +140,39 @@
     $('#syncLabel').textContent='Google Sheets 연결됨 · '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
     if(showMessage) notify('Google Sheets의 최신 정보를 불러왔습니다.','success');
   }
-  function showDashboard(on){$('#loginPanel').hidden=on;$('#dashboard').hidden=!on;}
-  async function login(secret) {
+  async function connect(secret,fromSettings=false) {
+    const previousSecret=state.secret;
+    const button=$('#saveSecretBtn');
     state.secret=secret;
-    busy($('#connectBtn'),true,'연결하는 중…');notify('Google Sheets 연결을 확인하고 있습니다.');
+    if(fromSettings) busy(button,true,'연결 확인 중…');
+    notify('Google Sheets에서 준비물을 불러오는 중입니다.');
     try {
       await load(false);
-      sessionStorage.setItem(sessionKey,state.secret);showDashboard(true);
-      notify('연결되었습니다. 모든 변경 사항은 Google Sheets에 저장됩니다.','success');
-    } catch(err){sessionStorage.removeItem(sessionKey);state.secret='';showDashboard(false);notify(err.message,'error');}
-    finally{busy($('#connectBtn'),false);}
+      if(state.items.length===0) throw new Error('Google Sheets 준비물 목록이 비어 있습니다. 시트 데이터를 확인하세요.');
+      state.connected=true;
+      const isPersistent=persistSecret(secret);
+      $('#secretInput').value='';
+      $('#secretInput').type='password';
+      $('#toggleSecretBtn').textContent='표시';
+      $('#toggleSecretBtn').setAttribute('aria-pressed','false');
+      updateConnectedView();
+      if(fromSettings) setTab('list');
+      notify(isPersistent?'연결 완료! SECRET이 이 기기에 저장되었습니다.':'연결 완료! 브라우저 저장 제한으로 이번 세션에서만 유지됩니다.',isPersistent?'success':'info');
+      return true;
+    } catch(err) {
+      state.secret=previousSecret;
+      state.connected=false;
+      state.items=[];
+      updateConnectedView();
+      if(!fromSettings) setTab('settings');
+      const status=$('#secretStatus');
+      status.className='connection-status error';
+      status.textContent='연결 확인 실패 · SECRET 또는 네트워크/배포 상태를 확인하세요.';
+      notify(err.message || '연결에 실패했습니다.','error');
+      return false;
+    } finally {
+      if(fromSettings) busy(button,false);
+    }
   }
   async function sendSave(id,changes) {
     const payload=JSON.stringify({id,changes}),random=nonce(),ts=String(Date.now());
@@ -146,8 +210,29 @@
     $('#editProduct').value=i.product;$('#editMemo').value=i.memo;
     $('#editor').showModal();
   }
-  $('#connectForm').addEventListener('submit',e=>{e.preventDefault();const secret=$('#secretInput').value;if(secret.length<16){notify('SECRET은 16자 이상 입력하세요.','error');return;}login(secret);});
-  $('#logoutBtn').addEventListener('click',()=>{sessionStorage.removeItem(sessionKey);state.secret='';state.items=[];$('#secretInput').value='';showDashboard(false);notify('연결을 해제했습니다.','info');});
+  $('#listTab').addEventListener('click',()=>setTab('list'));
+  $('#settingsTab').addEventListener('click',()=>setTab('settings'));
+  $('#goSettingsBtn').addEventListener('click',()=>setTab('settings'));
+  $('#settingsForm').addEventListener('submit',e=>{
+    e.preventDefault();
+    const secret=$('#secretInput').value;
+    if(secret.length<16){notify('SECRET은 16자 이상 입력하세요.','error');return;}
+    connect(secret,true);
+  });
+  $('#toggleSecretBtn').addEventListener('click',()=>{
+    const input=$('#secretInput'),show=input.type==='password';
+    input.type=show?'text':'password';
+    $('#toggleSecretBtn').textContent=show?'숨기기':'표시';
+    $('#toggleSecretBtn').setAttribute('aria-pressed',String(show));
+  });
+  $('#forgetSecretBtn').addEventListener('click',()=>{
+    safeRemove(localStorage,storageKey);
+    safeRemove(sessionStorage,oldSessionKey);
+    state.secret='';state.items=[];state.connected=false;
+    $('#secretInput').value='';
+    updateConnectedView();setTab('settings');
+    notify('이 기기에 저장된 SECRET을 삭제하고 연결을 해제했습니다.','success');
+  });
   $('#refreshBtn').addEventListener('click',async()=>{
     if(state.saving)return;const button=$('#refreshBtn');busy(button,true,'불러오는 중…');
     try{await load();}catch(e){notify(e.message,'error');}finally{busy(button,false);}
@@ -162,5 +247,12 @@
     try{if(await save(state.active,changes))$('#editor').close();}finally{busy($('#saveBtn'),false);}
   });
   for(const id of ['search','category','status'])$('#'+id).addEventListener(id==='search'?'input':'change',render);
-  if(state.secret){login(state.secret);}else if(!API){notify('먼저 config.js에 Apps Script 배포 URL을 입력하세요.','info');}
+  updateConnectedView();
+  const savedSecret=safeRead(localStorage,storageKey)||safeRead(sessionStorage,oldSessionKey);
+  if(savedSecret) {
+    notify('저장된 SECRET으로 자동 연결하고 있습니다.');
+    connect(savedSecret,false);
+  } else if (!API) {
+    notify('config.js에 Apps Script 배포 URL이 없습니다. 설정을 확인하세요.','error');
+  }
 })();
