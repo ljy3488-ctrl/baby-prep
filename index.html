@@ -1,1 +1,59 @@
-<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#f6f7fb"><title>우리 아기 준비 현황</title><link rel="stylesheet" href="style.css" defer></head><body><main class="wrap"><header><div class="eyebrow">BABY PREP · 2027.02</div><h1>우리 아기 준비 현황 🍼</h1><p>하나씩 준비하는 우리 아기의 첫 물건들</p></header><div class="notice">현재는 화면 테스트 버전입니다. Google Sheets 동기화는 다음 단계에서 연결합니다.</div><section class="stats"><div class="stat"><small>준비 완료</small><strong id="progress">0 / 42</strong><div class="track"><div id="bar"></div></div></div><div class="stat"><small>실제 구매 금액</small><strong id="spent">0원</strong><span>입력한 금액 합계</span></div></section><section class="controls"><input id="search" type="search" placeholder="준비물 검색" aria-label="준비물 검색"><div class="filters"><select id="category" aria-label="카테고리"><option value="">전체 카테고리</option></select><select id="status" aria-label="구매 상태"><option value="">전체 상태</option><option>미구매</option><option>구매완료</option><option>선물받음</option><option>보류</option></select></div></section><div class="section-title"><h2>준비물 목록</h2><span id="count"></span></div><div id="items" class="items"></div><footer>임시 테스트 데이터 · 실제 공유는 연동 후 활성화됩니다.</footer></main><dialog id="editor"><form method="dialog" id="editForm"><div class="dialog-head"><h2 id="editTitle"></h2><button value="cancel" class="close" aria-label="닫기">✕</button></div><label>구매 상태<select id="editStatus"><option>미구매</option><option>구매완료</option><option>선물받음</option><option>보류</option></select></label><label>실제 구매 금액 (원)<input id="editPrice" type="number" min="0" inputmode="numeric"></label><label>구매 제품<input id="editProduct" maxlength="500" placeholder="제품명 또는 구매처"></label><label>메모<textarea id="editMemo" maxlength="500" rows="3" placeholder="사이즈, 구매 예정일 등"></textarea></label><button class="save" id="saveBtn" value="save">저장</button></form></dialog><script src="app.js" defer></script></body></html>
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f7f6fb">
+  <title>우리 아기 준비 현황</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="config.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+<main class="wrap">
+  <header>
+    <div class="eyebrow">BABY PREP · 2027.02</div>
+    <h1>우리 아기 준비 현황 🍼</h1>
+    <p>함께 준비하는 우리 아기의 첫 물건들</p>
+  </header>
+
+  <div id="message" class="message" role="status" aria-live="polite"></div>
+
+  <section id="loginPanel" class="login-card">
+    <div class="login-icon">🔐</div>
+    <h2>가족 준비 목록 연결</h2>
+    <p>두 분이 정한 SECRET을 입력하면 Google Sheets의 준비물 목록을 불러옵니다.</p>
+    <form id="connectForm">
+      <label for="secretInput">공유 SECRET</label>
+      <input id="secretInput" type="password" minlength="16" required autocomplete="off" spellcheck="false" placeholder="Apps Script에 등록한 SECRET">
+      <button type="submit" id="connectBtn" class="primary">연결하기</button>
+    </form>
+    <div class="hint">SECRET은 공개 GitHub 파일에 저장되지 않습니다. 현재 브라우저 탭의 세션에만 보관됩니다.</div>
+  </section>
+
+  <div id="dashboard" hidden>
+    <div class="toolbar"><span id="syncLabel">Google Sheets 연동</span><div class="toolbar-actions"><button id="refreshBtn" type="button">↻ 새로고침</button><button id="logoutBtn" type="button">연결 해제</button></div></div>
+    <section class="stats">
+      <div class="stat"><small>준비 완료</small><strong id="progress">0 / 0</strong><div class="track"><div id="bar"></div></div></div>
+      <div class="stat"><small>실제 구매 금액</small><strong id="spent">0원</strong><span id="estimate">필수 예상 0원</span></div>
+    </section>
+    <section class="controls"><input id="search" type="search" placeholder="준비물 검색" aria-label="준비물 검색"><div class="filters"><select id="category" aria-label="카테고리"><option value="">전체 카테고리</option></select><select id="status" aria-label="구매 상태"><option value="">전체 상태</option><option>미구매</option><option>구매완료</option><option>선물받음</option><option>보류</option></select></div></section>
+    <div class="section-title"><h2>준비물 목록</h2><span id="count">0개 표시</span></div>
+    <div id="items" class="items"></div>
+    <footer>수정 사항은 Google Sheets에 저장됩니다. 다른 기기에서는 새로고침으로 확인하세요.</footer>
+  </div>
+</main>
+
+<dialog id="editor">
+  <form id="editForm">
+    <div class="dialog-head"><h2 id="editTitle">구매 정보 수정</h2><button id="cancelBtn" type="button" class="close" aria-label="닫기">✕</button></div>
+    <label>구매 상태<select id="editStatus"><option>미구매</option><option>구매완료</option><option>선물받음</option><option>보류</option></select></label>
+    <label>실제 구매 금액 (원)<input id="editPrice" type="number" min="0" max="100000000" step="1" inputmode="numeric"></label>
+    <label>구매 제품<input id="editProduct" maxlength="500" placeholder="제품명 또는 구매처"></label>
+    <label>메모<textarea id="editMemo" maxlength="500" rows="3" placeholder="사이즈, 구매 예정일 등"></textarea></label>
+    <p id="editorStatus" class="editor-status" role="alert" hidden></p>
+    <button type="submit" id="saveBtn" class="primary">Google Sheets에 저장</button>
+  </form>
+</dialog>
+</body>
+</html>
