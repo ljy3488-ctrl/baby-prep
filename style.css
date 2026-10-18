@@ -34,3 +34,13 @@ footer{text-align:center;font-size:12px;color:#9ba2ae;line-height:1.6;margin-top
 .filters{grid-template-columns:repeat(2,minmax(0,1fr))}
 .filters #category{grid-column:1 / -1}
 .filter-empty{border:1px dashed #d9d6e2;border-radius:14px;padding:26px 12px;text-align:center;color:#758093;font-size:13px;background:#fff}
+
+/* BabyPrep v2: create, edit and archive items */
+.toolbar-actions{flex-wrap:wrap;justify-content:flex-end}
+.toolbar .add-item{background:#9172bd;border-color:#9172bd;color:#fff;font-weight:800;padding:9px 12px}
+.item-fields{border:1px solid #efecf5;border-radius:13px;margin:14px 0 0;padding:0 12px 14px;min-width:0}
+.item-fields legend{color:#77608f;font-size:13px;font-weight:800;padding:0 6px}
+.item-fields label:first-of-type{margin-top:8px}
+.numeric-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+#deleteItemBtn{margin-top:10px}
+@media(max-width:390px){.toolbar{align-items:flex-start}.toolbar-actions{gap:6px}.toolbar-actions button{font-size:11px}}

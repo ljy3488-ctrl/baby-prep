@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f7f6fb">
   <title>우리 아기 준비 현황</title>
-  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="style.css?v=4">
   <script src="config.js" defer></script>
-  <script src="app.js?v=3" defer></script>
+  <script src="app.js?v=4" defer></script>
 </head>
 <body>
 <main class="wrap">
@@ -33,7 +33,7 @@
     </section>
 
     <div id="dashboard" hidden>
-      <div class="toolbar"><span id="syncLabel">Google Sheets 연동</span><div class="toolbar-actions"><button id="refreshBtn" type="button">↻ 새로고침</button></div></div>
+      <div class="toolbar"><span id="syncLabel">Google Sheets 연동</span><div class="toolbar-actions"><button id="addItemBtn" type="button" class="add-item">＋ 준비물 추가</button><button id="refreshBtn" type="button">↻ 새로고침</button></div></div>
       <section class="stats">
         <div class="stat"><small>준비 완료</small><strong id="progress">0 / 0</strong><div class="track"><div id="bar"></div></div></div>
         <div class="stat"><small>실제 구매 금액</small><strong id="spent">0원</strong><span id="estimate">필수 예상 0원</span></div>
@@ -68,12 +68,22 @@
 <dialog id="editor">
   <form id="editForm">
     <div class="dialog-head"><h2 id="editTitle">구매 정보 수정</h2><button id="cancelBtn" type="button" class="close" aria-label="닫기">✕</button></div>
+    <fieldset class="item-fields"><legend>준비물 정보</legend>
+      <label>품목명 <input id="editName" maxlength="80" required placeholder="예: 아기 침대 가드"></label>
+      <label>카테고리 <select id="editCategory" required></select></label>
+      <label>구분 <select id="editPriority" required><option value="필수">필수</option><option value="선택">선택</option><option value="나중">나중</option></select></label>
+      <div class="numeric-grid"><label>권장 수량 <input id="editQty" type="number" min="1" max="9999" step="1" required inputmode="numeric"></label>
+      <label>예상 금액 (원) <input id="editEstimate" type="number" min="0" max="100000000" step="1" required inputmode="numeric"></label></div>
+    </fieldset>
+    <fieldset class="item-fields"><legend>구매 정보</legend>
     <label>구매 상태<select id="editStatus"><option>미구매</option><option>구매완료</option><option>선물받음</option><option>보류</option></select></label>
     <label>실제 구매 금액 (원)<input id="editPrice" type="number" min="0" max="100000000" step="1" inputmode="numeric"></label>
     <label>구매 제품<input id="editProduct" maxlength="500" placeholder="제품명 또는 구매처"></label>
     <label>메모<textarea id="editMemo" maxlength="500" rows="3" placeholder="사이즈, 구매 예정일 등"></textarea></label>
+    </fieldset>
     <p id="editorStatus" class="editor-status" role="alert" hidden></p>
     <button type="submit" id="saveBtn" class="primary">Google Sheets에 저장</button>
+    <button type="button" id="deleteItemBtn" class="outline-danger" hidden>이 준비물 삭제</button>
   </form>
 </dialog>
 </body>

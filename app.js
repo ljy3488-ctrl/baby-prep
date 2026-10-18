@@ -7,6 +7,7 @@
   const storageKey = 'bp-device-secret-v2';
   const oldSessionKey = 'bp-active-secret-v1';
   const state = {items: [], secret:'', connected:false, saving:false, active:null};
+  const builtInCategories=['의류·침구','수유','수면','위생','목욕','외출','생활·산모','추후 구매'];
   const API = String(window.BABY_PREP_API_URL || '').trim();
 
   function safeRead(store,key) {
@@ -106,8 +107,13 @@
   function drawCategories() {
     const select=$('#category'),selected=select.value;
     select.replaceChildren(new Option('전체 카테고리',''));
-    for(const cat of new Set(state.items.map(i=>i.category))){select.add(new Option(cat,cat));}
+    const categories=[...new Set([...builtInCategories,...state.items.map(i=>i.category)])];
+    categories.forEach(cat=>select.add(new Option(cat,cat)));
     if([...select.options].some(o=>o.value===selected))select.value=selected;
+    const modal=$('#editCategory'),modalSelected=modal.value;
+    modal.replaceChildren();
+    categories.forEach(cat=>modal.add(new Option(cat,cat)));
+    if([...modal.options].some(o=>o.value===modalSelected))modal.value=modalSelected;
   }
   function render() {
     const completed=state.items.filter(i=>i.status==='구매완료'||i.status==='선물받음').length;
@@ -180,12 +186,15 @@
       if(fromSettings) busy(button,false);
     }
   }
-  async function sendSave(id,changes) {
-    const payload=JSON.stringify({id,changes}),random=nonce(),ts=String(Date.now());
-    const sig=await signature('POST',ts,random,'save',payload);
-    const body=new URLSearchParams({action:'save',ts,nonce:random,payload,sig});
-    // Avoid CORS preflight. Response is opaque, so a fresh signed GET verifies the saved data.
+  async function sendMutation(action,payload) {
+    const bodyText=JSON.stringify(payload),random=nonce(),ts=String(Date.now());
+    const sig=await signature('POST',ts,random,action,bodyText);
+    const body=new URLSearchParams({action,ts,nonce:random,payload:bodyText,sig});
+    // Cross-origin POST responses are opaque; always confirm with a fresh GET.
     await fetch(API,{method:'POST',mode:'no-cors',body,redirect:'follow',cache:'no-store'});
+  }
+  async function sendSave(id,changes) {
+    return sendMutation('save',{id,changes});
   }
   function matches(id,changes) {
     const current=state.items.find(i=>i.id===id);if(!current)return false;
@@ -209,12 +218,72 @@
     } catch(err){notify(err.message,'error');return false;}
     finally{state.saving=false;render();}
   }
+  function fillEditor(i) {
+    $('#editName').value=i.name||'';
+    $('#editCategory').value=i.category||builtInCategories[0];
+    $('#editPriority').value=i.priority||'필수';
+    $('#editQty').value=i.qty||1;
+    $('#editEstimate').value=Number(i.estimate||0);
+    $('#editStatus').value=i.status||'미구매';
+    $('#editPrice').value=Number(i.price||0);
+    $('#editProduct').value=i.product||'';
+    $('#editMemo').value=i.memo||'';
+    $('#editorStatus').hidden=true;
+    $('#editorStatus').textContent='';
+  }
   function openEditor(i) {
-    state.active=i.id;$('#editorStatus').hidden=true;$('#editorStatus').textContent='';
-    $('#editTitle').textContent=i.name;
-    $('#editStatus').value=i.status;$('#editPrice').value=i.price;
-    $('#editProduct').value=i.product;$('#editMemo').value=i.memo;
+    state.active=i.id;
+    $('#editTitle').textContent='준비물 수정';
+    fillEditor(i);
+    $('#deleteItemBtn').hidden=false;
+    $('#saveBtn').textContent='변경사항 저장';
     $('#editor').showModal();
+  }
+  function openAddEditor() {
+    if(!state.connected||state.saving)return;
+    state.active=null;
+    $('#editTitle').textContent='준비물 추가';
+    fillEditor({category:$('#category').value||builtInCategories[0],priority:$('#priority').value||'필수',qty:1,estimate:0,status:'미구매',price:0});
+    $('#deleteItemBtn').hidden=true;
+    $('#saveBtn').textContent='새 준비물 저장';
+    $('#editor').showModal();
+  }
+  function formRecord() {
+    const qty=Number($('#editQty').value),estimate=Number($('#editEstimate').value),price=Number($('#editPrice').value||0);
+    if(!Number.isSafeInteger(qty)||qty<1||qty>9999)throw new Error('권장 수량은 1~9999개 사이로 입력하세요.');
+    if(!Number.isSafeInteger(estimate)||estimate<0||estimate>100000000)throw new Error('예상 금액을 확인하세요.');
+    if(!Number.isSafeInteger(price)||price<0||price>100000000)throw new Error('실제 구매 금액을 확인하세요.');
+    const name=$('#editName').value.trim();
+    if(!name||name.length>80)throw new Error('품목명을 80자 이내로 입력하세요.');
+    return {name,category:$('#editCategory').value,priority:$('#editPriority').value,qty,estimate,status:$('#editStatus').value,price,product:$('#editProduct').value,memo:$('#editMemo').value};
+  }
+  function verifyItem(id,item) {
+    const actual=state.items.find(i=>i.id===id);
+    if(!actual)return false;
+    return ['name','category','priority','qty','estimate','status','price','product','memo']
+      .every(key=>String(actual[key])===String(item[key]));
+  }
+  function freshId() {
+    return 'BABY-'+Array.from(crypto.getRandomValues(new Uint8Array(8)),b=>b.toString(16).padStart(2,'0')).join('').toUpperCase();
+  }
+  async function persistItem(action,id,item) {
+    if(state.saving)return false;
+    state.saving=true;render();notify('Google Sheets에 저장 중입니다.');
+    let networkError;
+    try{await sendMutation(action,action==='delete'?{id}:{id,item});}catch(err){networkError=err;}
+    try{
+      let confirmed=false;
+      for(const pause of [400,800,1400,2200]) {
+        await new Promise(resolve=>setTimeout(resolve,pause));
+        await load(false);
+        confirmed=action==='delete'?!state.items.some(i=>i.id===id):verifyItem(id,item);
+        if(confirmed)break;
+      }
+      if(!confirmed)throw new Error(networkError?'네트워크 오류로 저장을 확인하지 못했습니다.':'변경 사항이 반영되지 않았습니다. Apps Script를 v2 코드로 바꾸고 새 버전으로 배포했는지 확인하세요.');
+      notify(action==='add'?'준비물을 추가했습니다.':action==='delete'?'삭제 완료! 원본은 스프레드시트 삭제보관 시트에 보관됩니다.':'준비물 수정 완료!','success');
+      return true;
+    }catch(err){notify(err.message||'저장 오류','error');return false;}
+    finally{state.saving=false;render();}
   }
   $('#listTab').addEventListener('click',()=>setTab('list'));
   $('#settingsTab').addEventListener('click',()=>setTab('settings'));
@@ -243,14 +312,27 @@
     if(state.saving)return;const button=$('#refreshBtn');busy(button,true,'불러오는 중…');
     try{await load();}catch(e){notify(e.message,'error');}finally{busy(button,false);}
   });
+  $('#addItemBtn').addEventListener('click',openAddEditor);
   $('#cancelBtn').addEventListener('click',()=>$('#editor').close());
   $('#editForm').addEventListener('submit',async e=>{
-    e.preventDefault();if(!state.active||state.saving)return;
-    const p=Number($('#editPrice').value||0);
-    if(!Number.isSafeInteger(p)||p<0||p>100000000){notify('구매 금액을 올바르게 입력하세요.','error');return;}
-    const changes={구매상태:$('#editStatus').value,실제금액:p,구매제품:$('#editProduct').value,메모:$('#editMemo').value};
+    e.preventDefault();if(state.saving)return;
+    let item;
+    try{item=formRecord();}catch(err){notify(err.message,'error');return;}
+    const adding=!state.active;
+    const id=adding?freshId():state.active;
     busy($('#saveBtn'),true,'저장하는 중…');
-    try{if(await save(state.active,changes))$('#editor').close();}finally{busy($('#saveBtn'),false);}
+    try { if(await persistItem(adding?'add':'edit',id,item)) $('#editor').close(); }
+    finally{busy($('#saveBtn'),false);}
+  });
+  $('#deleteItemBtn').addEventListener('click',async()=>{
+    const id=state.active;
+    if(!id||state.saving)return;
+    const item=state.items.find(i=>i.id===id);
+    if(!item)return;
+    if(!window.confirm(`「${item.name}」 준비물을 삭제할까요?\n삭제한 항목은 Google Sheets의 '삭제보관' 시트에 보관됩니다.`))return;
+    busy($('#deleteItemBtn'),true,'삭제하는 중…');
+    try { if(await persistItem('delete',id,null)) $('#editor').close(); }
+    finally{busy($('#deleteItemBtn'),false);}
   });
   for(const id of ['search','category','priority','status'])$('#'+id).addEventListener(id==='search'?'input':'change',render);
   updateConnectedView();
