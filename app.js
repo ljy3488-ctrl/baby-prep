@@ -7,7 +7,9 @@
   const storageKey = 'bp-device-secret-v2';
   const oldSessionKey = 'bp-active-secret-v1';
   const cacheKey = 'bp-items-cache-v3';
-  const state = {items: [], secret:'', connected:false, cached:false, saving:false, active:null, pendingChecks:new Map()};
+  const journalKey = 'bp-pending-edits-v9';
+  const state = {items: [], secret:'', connected:false, cached:false, active:null, pendingChecks:new Map(),
+    pendingEdits:new Map(), mutationQueue:[], mutationBusy:false, mutationFailed:false};
   const builtInCategories=['의류·침구','수유','수면','위생','목욕','외출','생활·산모','추후 구매'];
   const API = String(window.BABY_PREP_API_URL || '').trim();
 
@@ -64,8 +66,8 @@
       ? `연결됨 · 준비물 ${state.items.length}개 · 자동 연결 ${hasPersistent?'켜짐':'저장 불가(이 세션만)'}`
       : state.cached?'저장된 목록 표시 중 · Google Sheets 연결 확인 전에는 수정할 수 없습니다.'
       : hasSaved?'SECRET이 저장되어 있습니다. 자동 연결을 시도합니다.':'SECRET이 등록되지 않았습니다.';
-    $('#forgetSecretBtn').disabled=state.pendingChecks.size>0||(!hasSaved&&!state.connected);
-    $('#addItemBtn').disabled=!state.connected||state.saving||state.pendingChecks.size>0;
+    $('#forgetSecretBtn').disabled=state.pendingChecks.size>0||state.pendingEdits.size>0||(!hasSaved&&!state.connected);
+    $('#addItemBtn').disabled=!state.connected;
   }
 
 
@@ -181,12 +183,12 @@
     $('#statsPurchasedQty').textContent=sum.purchaseQty.toLocaleString('ko-KR')+'개';
     $('#statsPurchasedItems').textContent=sum.done+'개';
     $('#statsRemainingItems').textContent=sum.remaining+'개';
-    const pending=state.pendingChecks.size;
+    const pending=state.pendingChecks.size+state.pendingEdits.size;
     $('#statsPendingLabel').textContent=pending
-      ? pending+'개 항목 저장 중 · 현재 통계는 저장 전 변경 사항을 포함합니다.'
+      ? pending+'개 항목 저장 대기/진행 중 · 표시된 통계는 아직 서버에 저장되지 않은 변경을 포함합니다.'
       : '구매완료를 준비 완료로 계산합니다.';
     $('#statsSyncLabel').textContent=state.connected
-      ? 'Google Sheets 연결됨'+(pending?' · 저장 중…':'')
+      ? 'Google Sheets 연결됨'+(pending?' · '+pending+'건 저장 대기/진행 중':'')
       :state.cached?'기기 저장 목록 기준 · 최신 데이터 확인 중':'Google Sheets 연결 필요';
     const cats=[...new Set(scoped.map(i=>i.category||'미분류'))];
     const catRows=$('#statsCategoryRows'),spendRows=$('#statsSpendRows');
@@ -252,12 +254,14 @@
     }
     for(const i of selected){
       const complete=isPrepared(i);
-      const pending=state.pendingChecks.has(i.id);
+      const pendingCheck=state.pendingChecks.has(i.id);
+      const pendingEdit=state.pendingEdits.has(i.id);
+      const pending=pendingCheck||pendingEdit;
       const item=document.createElement('article');item.className='item'+(complete?' done':'')+(pending?' pending':'');
       const chk=document.createElement('button');chk.type='button';chk.className='check';chk.textContent=complete?'✓':'';
       chk.setAttribute('aria-label',i.name+(complete?' 완료 해제':' 구매 완료'));
       chk.setAttribute('aria-busy',String(pending));
-      chk.disabled=state.saving||!state.connected;
+      chk.disabled=pendingEdit||!state.connected;
       chk.addEventListener('click',()=>toggleCheck(i.id));
       const info=document.createElement('div');info.className='item-content';
       const title=document.createElement('div');title.className='item-title';title.textContent=i.name;
@@ -265,7 +269,7 @@
       const price=document.createElement('div');price.className='item-price';price.textContent=`구매 금액 ${won(i.price)} · 구매 수량 ${i.purchaseQty||0}개`;
       info.append(title,meta,price);
       if(i.product || i.memo){const note=document.createElement('div');note.className='item-note';note.textContent=[i.product,i.memo].filter(Boolean).join(' · ');info.append(note);}
-      const edit=document.createElement('button');edit.type='button';edit.className='edit';edit.textContent='수정';edit.disabled=state.saving||!state.connected||pending;edit.addEventListener('click',()=>openEditor(i));
+      const edit=document.createElement('button');edit.type='button';edit.className='edit';edit.textContent='수정';edit.disabled=!state.connected||pending;edit.addEventListener('click',()=>openEditor(i));
       item.append(chk,info,edit);wrap.append(item);
     }
     renderStatistics();
@@ -294,6 +298,7 @@
       $('#toggleSecretBtn').setAttribute('aria-pressed','false');
       updateConnectedView();render();
       if(fromSettings) setTab('list');
+      if(state.mutationQueue.length) void drainMutationQueue();
       notify(isPersistent?'자동 연결 완료 · 다음 방문부터 SECRET 입력 없이 시작합니다.':'연결 완료 · 브라우저 저장이 차단되어 이번 접속에서만 유지됩니다.',isPersistent?'success':'info');
       return true;
     } catch(err) {
@@ -331,15 +336,22 @@
   // confirmation run asynchronously. One writer per item ensures rapid taps
   // cannot reorder requests on the Apps Script side.
   function applyServerItems(serverItems) {
-    state.items=serverItems.map(item=>{
+    const merged=serverItems.map(item=>({...item}));
+    for(const job of state.mutationQueue){
+      const at=merged.findIndex(item=>item.id===job.id);
+      if(job.action==='delete'){if(at!==-1)merged.splice(at,1);}
+      else if(at!==-1)merged[at]={...merged[at],...job.item,id:job.id};
+      else merged.push({...job.item,id:job.id});
+    }
+    state.items=merged.map(item=>{
       const pending=state.pendingChecks.get(item.id);
       return pending?{...item,status:pending.desiredStatus}:item;
     });
-    // Cache confirmed server values only (not optimistic, unsaved edits).
+    // Cache only verified Sheets values; queued edits live in a separate local journal.
     persistItemCache(serverItems);
   }
   function toggleCheck(id) {
-    if(!state.connected||state.saving)return;
+    if(!state.connected||state.pendingEdits.has(id))return;
     const item=state.items.find(i=>i.id===id);
     if(!item)return;
     const previous=item.status;
@@ -428,7 +440,7 @@
     $('#editor').showModal();
   }
   function openAddEditor() {
-    if(!state.connected||state.saving||state.pendingChecks.size)return;
+    if(!state.connected)return;
     state.active=null;
     $('#editTitle').textContent='준비물 추가';
     fillEditor({category:$('#category').value||builtInCategories[0],priority:$('#priority').value||'필수',purchaseQty:0,status:'미구매',price:0});
@@ -446,34 +458,115 @@
     return {name,category:$('#editCategory').value,priority:$('#editPriority').value,
       purchaseQty,status:$('#editStatus').value,price,product:$('#editProduct').value,memo:$('#editMemo').value};
   }
-  function verifyItem(id,item) {
-    const actual=state.items.find(i=>i.id===id);
+  function matchesItem(serverItems,job) {
+    const actual=serverItems.find(i=>i.id===job.id);
+    if(job.action==='delete')return !actual;
     if(!actual)return false;
     return ['name','category','priority','purchaseQty','status','price','product','memo']
-      .every(key=>String(actual[key])===String(item[key]));
+      .every(key=>String(actual[key])===String(job.item[key]));
   }
   function freshId() {
     return 'BABY-'+Array.from(crypto.getRandomValues(new Uint8Array(8)),b=>b.toString(16).padStart(2,'0')).join('').toUpperCase();
   }
-  async function persistItem(action,id,item) {
-    if(state.saving)return false;
-    if(state.pendingChecks.size){notify('체크 저장이 끝난 뒤 준비물을 수정해 주세요.','info');return false;}
-    state.saving=true;render();notify('Google Sheets에 저장 중입니다.');
-    let networkError;
-    try{await sendMutation(action,action==='delete'?{id}:{id,item});}catch(err){networkError=err;}
-    try{
-      let confirmed=false;
-      for(const pause of [400,800,1400,2200]) {
-        await new Promise(resolve=>setTimeout(resolve,pause));
-        await load(false);
-        confirmed=action==='delete'?!state.items.some(i=>i.id===id):verifyItem(id,item);
-        if(confirmed)break;
+  // A local journal keeps unconfirmed edits if the user closes the home-screen app
+  // before Google Sheets has finished responding. It never contains the SECRET.
+  function saveJournal() {
+    try {
+      if(!state.mutationQueue.length){localStorage.removeItem(journalKey);return true;}
+      localStorage.setItem(journalKey,JSON.stringify({api:API,jobs:state.mutationQueue}));
+      return !!localStorage.getItem(journalKey);
+    }catch(e){return false;}
+  }
+  function restoreJournal() {
+    try {
+      const saved=JSON.parse(localStorage.getItem(journalKey)||'null');
+      if(!saved || saved.api!==API || !Array.isArray(saved.jobs))return;
+      for(const job of saved.jobs.slice(0,50)) {
+        if(!job || !['edit','add','delete'].includes(job.action) ||
+            !/^BABY-(?:\d{3}|[A-F0-9]{16})$/.test(String(job.id||'')) ||
+            (job.action!=='delete' && (!job.item || typeof job.item!=='object')))continue;
+        if(state.pendingEdits.has(job.id))continue;
+        const entry={action:job.action,id:job.id,item:job.item||null};
+        state.mutationQueue.push(entry);
+        state.pendingEdits.set(entry.id,entry);
       }
-      if(!confirmed)throw new Error(networkError?'네트워크 오류로 저장을 확인하지 못했습니다.':'변경 사항이 반영되지 않았습니다. Apps Script v8 설정 및 배포를 확인하세요.');
-      notify(action==='add'?'준비물을 추가했습니다.':action==='delete'?'삭제 완료! 원본은 스프레드시트 삭제보관 시트에 보관됩니다.':'준비물 수정 완료!','success');
-      return true;
-    }catch(err){notify(err.message||'저장 오류','error');return false;}
-    finally{state.saving=false;render();}
+    }catch(e){}
+  }
+  function updateQueueView() {
+    const count=state.mutationQueue.length;
+    const panel=$('#saveQueueBanner');panel.hidden=count===0;
+    const text=$('#saveQueueText');
+    text.textContent=state.mutationFailed
+      ? count+'건의 변경을 Google Sheets에 확인하지 못했습니다. 재시도해 주세요.'
+      : count+'건의 변경을 Google Sheets에 저장 중…';
+    $('#retrySaveBtn').hidden=!state.mutationFailed;
+    if(panel.hidden)return;
+    panel.classList.toggle('save-failed',state.mutationFailed);
+  }
+  function optimisticMutation(action,id,item) {
+    const previous=state.items.find(row=>row.id===id);
+    if(action==='delete')state.items=state.items.filter(row=>row.id!==id);
+    else if(action==='add')state.items.push({...item,id});
+    else state.items=state.items.map(row=>row.id===id?{...row,...item}:row);
+  }
+  // Apply immediately; enqueue network writes and verification asynchronously.
+  function queueMutation(action,id,item) {
+    if(!state.connected){notify('연결을 확인한 뒤 다시 시도해 주세요.','error');return false;}
+    if(state.pendingChecks.has(id)||state.pendingEdits.has(id)) {
+      notify('이 품목은 이전 변경사항 저장 중입니다. 잠시 뒤 다시 시도해 주세요.','info');return false;
+    }
+    const job={action,id,item:item?{...item}:null};
+    state.mutationQueue.push(job);state.pendingEdits.set(id,job);
+    const journalOk=saveJournal();
+    optimisticMutation(action,id,item);
+    drawCategories();render();updateConnectedView();updateQueueView();
+    notify(journalOk?'화면에 먼저 반영했습니다. Google Sheets 저장을 확인 중입니다.':'화면에 먼저 반영했습니다. 이 기기에 저장 대기 내역을 보관하지 못했으므로 확인 완료 전 앱을 닫지 마세요.','info');
+    void drainMutationQueue();
+    return true;
+  }
+  async function confirmMutation(job) {
+    for(const pause of [250,500,900,1400,2200,3200,4500]) {
+      await new Promise(resolve=>setTimeout(resolve,pause));
+      const serverItems=await getItems();
+      if(matchesItem(serverItems,job))return serverItems;
+    }
+    throw new Error('서버에서 변경 내용을 아직 확인하지 못했습니다.');
+  }
+  async function drainMutationQueue() {
+    if(!state.connected||state.mutationBusy||!state.mutationQueue.length)return;
+    state.mutationBusy=true;state.mutationFailed=false;updateQueueView();
+    try {
+      while(state.connected && state.mutationQueue.length){
+        const job=state.mutationQueue[0];
+        let serverItems;
+        // After an interrupted request, check whether the write succeeded before
+        // replaying it (safe for create/delete as well as edits).
+        try {
+          const current=await getItems();
+          if(matchesItem(current,job))serverItems=current;
+        }catch(ignored){}
+        if(!serverItems){
+          let postError=null;
+          try {await sendMutation(job.action,job.action==='delete'?{id:job.id}:{id:job.id,item:job.item});}
+          catch(e){postError=e;}
+          try {serverItems=await confirmMutation(job);}
+          catch(e){throw postError||e;}
+        }
+        // Remote state is authoritative after verification; keep later queued edits.
+        state.mutationQueue.shift();state.pendingEdits.delete(job.id);
+        saveJournal();
+        applyServerItems(serverItems);
+        drawCategories();render();updateConnectedView();updateQueueView();
+      }
+      if(!state.mutationQueue.length)notify('변경사항이 Google Sheets에 모두 저장됐습니다.','success');
+    }catch(e){
+      state.mutationFailed=true;
+      notify('아직 서버 저장을 확인하지 못했습니다. 저장 대기 내역은 이 기기에 보관됩니다. 재시도해 주세요. '+(e.message||''),'error');
+      updateQueueView();
+    }finally{
+      state.mutationBusy=false;
+      updateQueueView();
+    }
   }
   $('#listTab').addEventListener('click',()=>setTab('list'));
   $('#statsTab').addEventListener('click',()=>setTab('stats'));
@@ -482,6 +575,8 @@
   $('#statsGoSettingsBtn').addEventListener('click',()=>setTab('settings'));
   $('#statsPriority').addEventListener('change',renderStatistics);
   $('#statsRefreshBtn').addEventListener('click',()=>$('#refreshBtn').click());
+  $('#retrySaveBtn').addEventListener('click',()=>{void drainMutationQueue();});
+  window.addEventListener('online',()=>{if(state.mutationQueue.length)void drainMutationQueue();});
   $('#settingsForm').addEventListener('submit',e=>{
     e.preventDefault();
     const secret=$('#secretInput').value;
@@ -498,44 +593,46 @@
     safeRemove(localStorage,storageKey);
     safeRemove(localStorage,cacheKey);
     safeRemove(sessionStorage,oldSessionKey);
+    safeRemove(localStorage,journalKey);
     state.secret='';state.items=[];state.connected=false;state.cached=false;state.pendingChecks.clear();
+    state.pendingEdits.clear();state.mutationQueue=[];state.mutationFailed=false;updateQueueView();
     $('#secretInput').value='';
     updateConnectedView();render();setTab('settings');
     notify('이 기기에 저장된 SECRET을 삭제하고 연결을 해제했습니다.','success');
   });
   $('#refreshBtn').addEventListener('click',async()=>{
-    if(state.saving)return;const button=$('#refreshBtn');busy(button,true,'불러오는 중…');
+    const button=$('#refreshBtn');busy(button,true,'불러오는 중…');
     try {
       if(!state.connected) {
         if(!state.secret){setTab('settings');notify('설정에서 SECRET을 입력하세요.','info');}
         else await connect(state.secret,false);
       } else await load();
+      if(state.mutationFailed&&state.mutationQueue.length)void drainMutationQueue();
     }catch(e){notify(e.message,'error');}
     finally{busy(button,false);}
   });
   $('#addItemBtn').addEventListener('click',openAddEditor);
   $('#cancelBtn').addEventListener('click',()=>$('#editor').close());
-  $('#editForm').addEventListener('submit',async e=>{
-    e.preventDefault();if(state.saving)return;
+  $('#editForm').addEventListener('submit',e=>{
+    e.preventDefault();
     let item;
     try{item=formRecord();}catch(err){notify(err.message,'error');return;}
     const adding=!state.active;
     const id=adding?freshId():state.active;
-    busy($('#saveBtn'),true,'저장하는 중…');
-    try { if(await persistItem(adding?'add':'edit',id,item)) $('#editor').close(); }
-    finally{busy($('#saveBtn'),false);}
+    if(queueMutation(adding?'add':'edit',id,item))$('#editor').close();
   });
-  $('#deleteItemBtn').addEventListener('click',async()=>{
+  $('#deleteItemBtn').addEventListener('click',()=>{
     const id=state.active;
-    if(!id||state.saving)return;
+    if(!id)return;
     const item=state.items.find(i=>i.id===id);
     if(!item)return;
-    if(!window.confirm(`「${item.name}」 준비물을 삭제할까요?\n삭제한 항목은 Google Sheets의 '삭제보관' 시트에 보관됩니다.`))return;
-    busy($('#deleteItemBtn'),true,'삭제하는 중…');
-    try { if(await persistItem('delete',id,null)) $('#editor').close(); }
-    finally{busy($('#deleteItemBtn'),false);}
+    if(!window.confirm(`「${item.name}」 준비물을 삭제할까요?
+삭제한 항목은 Google Sheets의 '삭제보관' 시트에 보관됩니다.`))return;
+    if(queueMutation('delete',id,null))$('#editor').close();
   });
   for(const id of ['search','category','priority','status'])$('#'+id).addEventListener(id==='search'?'input':'change',render);
+  restoreJournal();
+  updateQueueView();
   updateConnectedView();
   const savedSecret=safeRead(localStorage,storageKey)||safeRead(sessionStorage,oldSessionKey);
   if(savedSecret) {
@@ -543,7 +640,7 @@
     // Show saved results immediately; verify with the server in the background.
     const old=readItemCache();
     if(old){
-      state.items=old.items.map(i=>({...i,purchaseQty:Number(i.purchaseQty||0),status:i.status==='선물받음'?'구매완료':i.status}));state.cached=true;
+      applyServerItems(old.items.map(i=>({...i,purchaseQty:Number(i.purchaseQty||0),status:i.status==='선물받음'?'구매완료':i.status})));state.cached=true;
       drawCategories();render();
       $('#syncLabel').textContent='기기 저장 목록 · 최신 정보 확인 중…';
       updateConnectedView();
