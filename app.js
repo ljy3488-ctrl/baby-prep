@@ -115,10 +115,16 @@
     $('#bar').style.width=(state.items.length?100*completed/state.items.length:0)+'%';
     $('#spent').textContent=won(state.items.reduce((v,i)=>v+(Number(i.price)||0),0));
     $('#estimate').textContent='필수 예상 '+won(state.items.filter(i=>i.priority==='필수').reduce((v,i)=>v+(Number(i.estimate)||0),0));
-    const q=$('#search').value.trim().toLowerCase(),cat=$('#category').value, status=$('#status').value;
-    const selected=state.items.filter(i=>(!cat||i.category===cat)&&(!status||i.status===status)&&(!q||(i.name+' '+i.product+' '+i.memo).toLowerCase().includes(q)));
+    const q=$('#search').value.trim().toLowerCase(),cat=$('#category').value, priority=$('#priority').value, status=$('#status').value;
+    const selected=state.items.filter(i=>(!cat||i.category===cat)&&(!priority||i.priority===priority)&&(!status||i.status===status)&&(!q||(i.name+' '+i.product+' '+i.memo).toLowerCase().includes(q)));
     $('#count').textContent=selected.length+'개 표시';
     const wrap=$('#items');wrap.replaceChildren();
+    if (!selected.length) {
+      const empty=document.createElement('div');
+      empty.className='filter-empty';
+      empty.textContent=state.items.length?'선택한 조건에 해당하는 준비물이 없습니다.':'표시할 준비물이 없습니다.';
+      wrap.append(empty);
+    }
     for(const i of selected){
       const complete=i.status==='구매완료'||i.status==='선물받음';
       const item=document.createElement('article');item.className='item'+(complete?' done':'');
@@ -246,7 +252,7 @@
     busy($('#saveBtn'),true,'저장하는 중…');
     try{if(await save(state.active,changes))$('#editor').close();}finally{busy($('#saveBtn'),false);}
   });
-  for(const id of ['search','category','status'])$('#'+id).addEventListener(id==='search'?'input':'change',render);
+  for(const id of ['search','category','priority','status'])$('#'+id).addEventListener(id==='search'?'input':'change',render);
   updateConnectedView();
   const savedSecret=safeRead(localStorage,storageKey)||safeRead(sessionStorage,oldSessionKey);
   if(savedSecret) {

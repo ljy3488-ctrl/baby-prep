@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f7f6fb">
   <title>우리 아기 준비 현황</title>
-  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="style.css?v=3">
   <script src="config.js" defer></script>
-  <script src="app.js?v=2" defer></script>
+  <script src="app.js?v=3" defer></script>
 </head>
 <body>
 <main class="wrap">
@@ -38,7 +38,7 @@
         <div class="stat"><small>준비 완료</small><strong id="progress">0 / 0</strong><div class="track"><div id="bar"></div></div></div>
         <div class="stat"><small>실제 구매 금액</small><strong id="spent">0원</strong><span id="estimate">필수 예상 0원</span></div>
       </section>
-      <section class="controls"><input id="search" type="search" placeholder="준비물 검색" aria-label="준비물 검색"><div class="filters"><select id="category" aria-label="카테고리"><option value="">전체 카테고리</option></select><select id="status" aria-label="구매 상태"><option value="">전체 상태</option><option>미구매</option><option>구매완료</option><option>선물받음</option><option>보류</option></select></div></section>
+      <section class="controls"><input id="search" type="search" placeholder="준비물 검색" aria-label="준비물 검색"><div class="filters"><select id="category" aria-label="카테고리"><option value="">전체 카테고리</option></select><select id="priority" aria-label="필수 선택 구분"><option value="">전체 구분</option><option value="필수">필수</option><option value="선택">선택</option><option value="나중">나중</option></select><select id="status" aria-label="구매 상태"><option value="">전체 상태</option><option>미구매</option><option>구매완료</option><option>선물받음</option><option>보류</option></select></div></section>
       <div class="section-title"><h2>준비물 목록</h2><span id="count">0개 표시</span></div>
       <div id="items" class="items"></div>
       <footer>수정 사항은 Google Sheets에 저장됩니다. 다른 기기에서는 새로고침으로 확인하세요.</footer>
