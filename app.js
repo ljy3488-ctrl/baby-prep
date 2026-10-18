@@ -6,7 +6,8 @@
   // Keep the API URL in config.js, and store the user's SECRET only on this device.
   const storageKey = 'bp-device-secret-v2';
   const oldSessionKey = 'bp-active-secret-v1';
-  const state = {items: [], secret:'', connected:false, saving:false, active:null};
+  const cacheKey = 'bp-items-cache-v3';
+  const state = {items: [], secret:'', connected:false, cached:false, saving:false, active:null};
   const builtInCategories=['의류·침구','수유','수면','위생','목욕','외출','생활·산모','추후 구매'];
   const API = String(window.BABY_PREP_API_URL || '').trim();
 
@@ -19,13 +20,26 @@
   function persistSecret(secret) {
     try {
       localStorage.setItem(storageKey,secret);
+      if (localStorage.getItem(storageKey) !== secret) throw new Error('SECRET 저장 확인 실패');
       safeRemove(sessionStorage,oldSessionKey);
       return true;
     } catch(e) {
-      // Private mode / blocked local storage: keep this session connected only.
+      // Browsers in private mode, or with storage disabled, cannot promise persistence.
       try {sessionStorage.setItem(oldSessionKey,secret);} catch(ignored) {}
       return false;
     }
+  }
+  function readItemCache() {
+    try {
+      const cache=JSON.parse(safeRead(localStorage,cacheKey));
+      if(cache && cache.api===API && Array.isArray(cache.items) && cache.items.length>0) return cache;
+    }catch(e){}
+    return null;
+  }
+  function persistItemCache(items) {
+    if(!Array.isArray(items) || !items.length)return;
+    try {localStorage.setItem(cacheKey,JSON.stringify({api:API,items,savedAt:Date.now()}));}
+    catch(e) {/* Caching is optional; Google Sheets remains the source of truth. */}
   }
   function setTab(view) {
     const settings = view==='settings';
@@ -37,15 +51,19 @@
     $('#settingsTab').setAttribute('aria-selected',String(settings));
   }
   function updateConnectedView() {
-    $('#dashboard').hidden=!state.connected;
-    $('#disconnected').hidden=state.connected;
-    const hasSaved=Boolean(safeRead(localStorage,storageKey)||safeRead(sessionStorage,oldSessionKey));
+    const showList=state.connected||state.cached;
+    $('#dashboard').hidden=!showList;
+    $('#disconnected').hidden=showList;
+    const hasPersistent=Boolean(safeRead(localStorage,storageKey));
+    const hasSaved=hasPersistent||Boolean(safeRead(sessionStorage,oldSessionKey));
     const status=$('#secretStatus');
-    status.className='connection-status'+(state.connected?' connected':'');
+    status.className='connection-status'+(state.connected?' connected':state.cached?' waiting':'');
     status.textContent=state.connected
-      ? `연결됨 · 준비물 ${state.items.length}개 · 이 기기에 SECRET ${hasSaved?'저장됨':'저장 확인 필요'}`
-      : hasSaved?'저장된 SECRET이 있습니다. 연결 상태를 확인해 주세요.':'SECRET이 등록되지 않았습니다.';
+      ? `연결됨 · 준비물 ${state.items.length}개 · 자동 연결 ${hasPersistent?'켜짐':'저장 불가(이 세션만)'}`
+      : state.cached?'저장된 목록 표시 중 · Google Sheets 연결 확인 전에는 수정할 수 없습니다.'
+      : hasSaved?'SECRET이 저장되어 있습니다. 자동 연결을 시도합니다.':'SECRET이 등록되지 않았습니다.';
     $('#forgetSecretBtn').disabled=!hasSaved&&!state.connected;
+    $('#addItemBtn').disabled=!state.connected||state.saving;
   }
 
 
@@ -135,7 +153,7 @@
       const complete=i.status==='구매완료'||i.status==='선물받음';
       const item=document.createElement('article');item.className='item'+(complete?' done':'');
       const chk=document.createElement('button');chk.type='button';chk.className='check';chk.textContent=complete?'✓':'';
-      chk.setAttribute('aria-label',i.name+' 구매 완료 변경');chk.disabled=state.saving;
+      chk.setAttribute('aria-label',i.name+' 구매 완료 변경');chk.disabled=state.saving||!state.connected;
       chk.addEventListener('click',()=>save(i.id,{구매상태:i.status==='구매완료'?'미구매':'구매완료'}));
       const info=document.createElement('div');info.className='item-content';
       const title=document.createElement('div');title.className='item-title';title.textContent=i.name;
@@ -143,44 +161,52 @@
       const price=document.createElement('div');price.className='item-price';price.textContent=`예상 ${won(i.estimate)} · 실제 ${won(i.price)}`;
       info.append(title,meta,price);
       if(i.product || i.memo){const note=document.createElement('div');note.className='item-note';note.textContent=[i.product,i.memo].filter(Boolean).join(' · ');info.append(note);}
-      const edit=document.createElement('button');edit.type='button';edit.className='edit';edit.textContent='수정';edit.disabled=state.saving;edit.addEventListener('click',()=>openEditor(i));
+      const edit=document.createElement('button');edit.type='button';edit.className='edit';edit.textContent='수정';edit.disabled=state.saving||!state.connected;edit.addEventListener('click',()=>openEditor(i));
       item.append(chk,info,edit);wrap.append(item);
     }
   }
   async function load(showMessage=true) {
-    const items=await getItems();state.items=items;drawCategories();render();
+    const items=await getItems();state.items=items;
+    persistItemCache(items);
+    drawCategories();render();
     $('#syncLabel').textContent='Google Sheets 연결됨 · '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
     if(showMessage) notify('Google Sheets의 최신 정보를 불러왔습니다.','success');
   }
   async function connect(secret,fromSettings=false) {
-    const previousSecret=state.secret;
+    const previousSecret=state.secret,previousConnected=state.connected;
     const button=$('#saveSecretBtn');
     state.secret=secret;
     if(fromSettings) busy(button,true,'연결 확인 중…');
-    notify('Google Sheets에서 준비물을 불러오는 중입니다.');
+    notify(state.cached?'저장된 준비물을 먼저 표시했습니다. 최신 내용을 확인하는 중…':'저장된 SECRET으로 Google Sheets에 자동 연결하는 중…');
     try {
       await load(false);
       if(state.items.length===0) throw new Error('Google Sheets 준비물 목록이 비어 있습니다. 시트 데이터를 확인하세요.');
-      state.connected=true;
+      state.connected=true;state.cached=false;
       const isPersistent=persistSecret(secret);
       $('#secretInput').value='';
       $('#secretInput').type='password';
       $('#toggleSecretBtn').textContent='표시';
       $('#toggleSecretBtn').setAttribute('aria-pressed','false');
-      updateConnectedView();
+      updateConnectedView();render();
       if(fromSettings) setTab('list');
-      notify(isPersistent?'연결 완료! SECRET이 이 기기에 저장되었습니다.':'연결 완료! 브라우저 저장 제한으로 이번 세션에서만 유지됩니다.',isPersistent?'success':'info');
+      notify(isPersistent?'자동 연결 완료 · 다음 방문부터 SECRET 입력 없이 시작합니다.':'연결 완료 · 브라우저 저장이 차단되어 이번 접속에서만 유지됩니다.',isPersistent?'success':'info');
       return true;
     } catch(err) {
-      state.secret=previousSecret;
-      state.connected=false;
-      state.items=[];
-      updateConnectedView();
-      if(!fromSettings) setTab('settings');
+      // A temporary network failure must not erase the user's saved SECRET.
+      if(fromSettings && previousConnected){
+        state.secret=previousSecret;state.connected=true;
+      } else {
+        state.secret=fromSettings?previousSecret:secret;
+        state.connected=false;
+      }
+      updateConnectedView();render();
+      if(!state.cached&&!state.connected&&!fromSettings)setTab('settings');
       const status=$('#secretStatus');
-      status.className='connection-status error';
-      status.textContent='연결 확인 실패 · SECRET 또는 네트워크/배포 상태를 확인하세요.';
-      notify(err.message || '연결에 실패했습니다.','error');
+      if(!state.connected){
+        status.className='connection-status error';
+        status.textContent=state.cached?'연결 실패 · 저장된 목록만 표시합니다. 새로고침으로 재시도하세요.':'자동 연결 실패 · 저장된 SECRET은 유지됩니다.';
+      }
+      notify((err.message||'연결에 실패했습니다.')+' · SECRET은 삭제되지 않았습니다.','error');
       return false;
     } finally {
       if(fromSettings) busy(button,false);
@@ -302,15 +328,22 @@
   });
   $('#forgetSecretBtn').addEventListener('click',()=>{
     safeRemove(localStorage,storageKey);
+    safeRemove(localStorage,cacheKey);
     safeRemove(sessionStorage,oldSessionKey);
-    state.secret='';state.items=[];state.connected=false;
+    state.secret='';state.items=[];state.connected=false;state.cached=false;
     $('#secretInput').value='';
     updateConnectedView();setTab('settings');
     notify('이 기기에 저장된 SECRET을 삭제하고 연결을 해제했습니다.','success');
   });
   $('#refreshBtn').addEventListener('click',async()=>{
     if(state.saving)return;const button=$('#refreshBtn');busy(button,true,'불러오는 중…');
-    try{await load();}catch(e){notify(e.message,'error');}finally{busy(button,false);}
+    try {
+      if(!state.connected) {
+        if(!state.secret){setTab('settings');notify('설정에서 SECRET을 입력하세요.','info');}
+        else await connect(state.secret,false);
+      } else await load();
+    }catch(e){notify(e.message,'error');}
+    finally{busy(button,false);}
   });
   $('#addItemBtn').addEventListener('click',openAddEditor);
   $('#cancelBtn').addEventListener('click',()=>$('#editor').close());
@@ -338,7 +371,15 @@
   updateConnectedView();
   const savedSecret=safeRead(localStorage,storageKey)||safeRead(sessionStorage,oldSessionKey);
   if(savedSecret) {
-    notify('저장된 SECRET으로 자동 연결하고 있습니다.');
+    state.secret=savedSecret;
+    // Show saved results immediately; verify with the server in the background.
+    const old=readItemCache();
+    if(old){
+      state.items=old.items;state.cached=true;
+      drawCategories();render();
+      $('#syncLabel').textContent='기기 저장 목록 · 최신 정보 확인 중…';
+      updateConnectedView();
+    }
     connect(savedSecret,false);
   } else if (!API) {
     notify('config.js에 Apps Script 배포 URL이 없습니다. 설정을 확인하세요.','error');

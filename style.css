@@ -44,3 +44,6 @@ footer{text-align:center;font-size:12px;color:#9ba2ae;line-height:1.6;margin-top
 .numeric-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
 #deleteItemBtn{margin-top:10px}
 @media(max-width:390px){.toolbar{align-items:flex-start}.toolbar-actions{gap:6px}.toolbar-actions button{font-size:11px}}
+
+/* v3: cached items shown immediately while authentication/sync runs */
+.connection-status.waiting{background:#fff9e8;color:#8a6629;border-color:#f0dfab}
