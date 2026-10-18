@@ -7,7 +7,7 @@
   const storageKey = 'bp-device-secret-v2';
   const oldSessionKey = 'bp-active-secret-v1';
   const cacheKey = 'bp-items-cache-v3';
-  const state = {items: [], secret:'', connected:false, cached:false, saving:false, active:null};
+  const state = {items: [], secret:'', connected:false, cached:false, saving:false, active:null, pendingChecks:new Map()};
   const builtInCategories=['의류·침구','수유','수면','위생','목욕','외출','생활·산모','추후 구매'];
   const API = String(window.BABY_PREP_API_URL || '').trim();
 
@@ -62,8 +62,8 @@
       ? `연결됨 · 준비물 ${state.items.length}개 · 자동 연결 ${hasPersistent?'켜짐':'저장 불가(이 세션만)'}`
       : state.cached?'저장된 목록 표시 중 · Google Sheets 연결 확인 전에는 수정할 수 없습니다.'
       : hasSaved?'SECRET이 저장되어 있습니다. 자동 연결을 시도합니다.':'SECRET이 등록되지 않았습니다.';
-    $('#forgetSecretBtn').disabled=!hasSaved&&!state.connected;
-    $('#addItemBtn').disabled=!state.connected||state.saving;
+    $('#forgetSecretBtn').disabled=state.pendingChecks.size>0||(!hasSaved&&!state.connected);
+    $('#addItemBtn').disabled=!state.connected||state.saving||state.pendingChecks.size>0;
   }
 
 
@@ -151,23 +151,26 @@
     }
     for(const i of selected){
       const complete=i.status==='구매완료'||i.status==='선물받음';
-      const item=document.createElement('article');item.className='item'+(complete?' done':'');
+      const pending=state.pendingChecks.has(i.id);
+      const item=document.createElement('article');item.className='item'+(complete?' done':'')+(pending?' pending':'');
       const chk=document.createElement('button');chk.type='button';chk.className='check';chk.textContent=complete?'✓':'';
-      chk.setAttribute('aria-label',i.name+' 구매 완료 변경');chk.disabled=state.saving||!state.connected;
-      chk.addEventListener('click',()=>save(i.id,{구매상태:i.status==='구매완료'?'미구매':'구매완료'}));
+      chk.setAttribute('aria-label',i.name+(complete?' 완료 해제':' 구매 완료'));
+      chk.setAttribute('aria-busy',String(pending));
+      chk.disabled=state.saving||!state.connected;
+      chk.addEventListener('click',()=>toggleCheck(i.id));
       const info=document.createElement('div');info.className='item-content';
       const title=document.createElement('div');title.className='item-title';title.textContent=i.name;
-      const meta=document.createElement('div');meta.className='item-meta';meta.textContent=`${i.category} · ${i.priority} · 권장 ${i.qty}개 · ${i.status}`;
+      const meta=document.createElement('div');meta.className='item-meta';meta.textContent=`${i.category} · ${i.priority} · 권장 ${i.qty}개 · ${i.status}${pending?' · 저장 중…':''}`;
       const price=document.createElement('div');price.className='item-price';price.textContent=`예상 ${won(i.estimate)} · 실제 ${won(i.price)}`;
       info.append(title,meta,price);
       if(i.product || i.memo){const note=document.createElement('div');note.className='item-note';note.textContent=[i.product,i.memo].filter(Boolean).join(' · ');info.append(note);}
-      const edit=document.createElement('button');edit.type='button';edit.className='edit';edit.textContent='수정';edit.disabled=state.saving||!state.connected;edit.addEventListener('click',()=>openEditor(i));
+      const edit=document.createElement('button');edit.type='button';edit.className='edit';edit.textContent='수정';edit.disabled=state.saving||!state.connected||pending;edit.addEventListener('click',()=>openEditor(i));
       item.append(chk,info,edit);wrap.append(item);
     }
   }
   async function load(showMessage=true) {
-    const items=await getItems();state.items=items;
-    persistItemCache(items);
+    const items=await getItems();
+    applyServerItems(items);
     drawCategories();render();
     $('#syncLabel').textContent='Google Sheets 연결됨 · '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
     if(showMessage) notify('Google Sheets의 최신 정보를 불러왔습니다.','success');
@@ -222,27 +225,85 @@
   async function sendSave(id,changes) {
     return sendMutation('save',{id,changes});
   }
-  function matches(id,changes) {
-    const current=state.items.find(i=>i.id===id);if(!current)return false;
-    const m={구매상태:'status',실제금액:'price',구매제품:'product',메모:'memo'};
-    return Object.entries(changes).every(([key,val])=>String(current[m[key]])===String(val));
+  // v4: optimistic checkbox updates. The UI responds immediately; writes and
+  // confirmation run asynchronously. One writer per item ensures rapid taps
+  // cannot reorder requests on the Apps Script side.
+  function applyServerItems(serverItems) {
+    state.items=serverItems.map(item=>{
+      const pending=state.pendingChecks.get(item.id);
+      return pending?{...item,status:pending.desiredStatus}:item;
+    });
+    // Cache confirmed server values only (not optimistic, unsaved edits).
+    persistItemCache(serverItems);
   }
-  async function save(id,changes) {
-    if(state.saving)return false;
-    state.saving=true;render();notify('저장하고 있습니다.');
-    let networkError;
-    try{await sendSave(id,changes);}catch(e){networkError=e;}
+  function toggleCheck(id) {
+    if(!state.connected||state.saving)return;
+    const item=state.items.find(i=>i.id===id);
+    if(!item)return;
+    const previous=item.status;
+    const next=(previous==='구매완료'||previous==='선물받음')?'미구매':'구매완료';
+    let job=state.pendingChecks.get(id);
+    if(!job){
+      job={desiredStatus:next,confirmedStatus:previous};
+      state.pendingChecks.set(id,job);
+    }else{
+      job.desiredStatus=next;
+    }
+    // Update first, without waiting for fetch() or a Sheets round trip.
+    item.status=next;
+    render();
+    updateConnectedView();
+    if(job.confirmedStatus===previous && job.desiredStatus===next && !job.running){
+      job.running=true;
+      void flushCheck(id,job);
+    }
+  }
+  async function confirmCheck(id,expected) {
+    // Apps Script POST uses no-cors, so the only reliable acknowledgement is
+    // a separate, signed GET whose status matches what was written.
+    for(const delay of [300,650,1050,1600,2300,3200]) {
+      await new Promise(resolve=>setTimeout(resolve,delay));
+      const serverItems=await getItems();
+      const serverItem=serverItems.find(i=>i.id===id);
+      if(serverItem && serverItem.status===expected)return serverItems;
+    }
+    throw new Error('Google Sheets 저장 결과를 확인하지 못했습니다.');
+  }
+  async function flushCheck(id,job) {
     try {
-      // Read-after-write confirms results even when cross-origin POST response is opaque.
-      await new Promise(resolve=>setTimeout(resolve,350));
-      await load(false);
-      if(!matches(id,changes)) {
-        await new Promise(resolve=>setTimeout(resolve,900));await load(false);
+      while(state.pendingChecks.get(id)===job) {
+        const target=job.desiredStatus;
+        // POST may succeed even when the browser cannot read its response.
+        let postError=null;
+        try {await sendSave(id,{구매상태:target});}
+        catch(err){postError=err;}
+        let serverItems;
+        try {serverItems=await confirmCheck(id,target);}
+        catch(err) {throw postError||err;}
+        job.confirmedStatus=target;
+        // Clear the pending marker only once the latest tap is confirmed.
+        if(job.desiredStatus===target)state.pendingChecks.delete(id);
+        applyServerItems(serverItems);
+        drawCategories();render();updateConnectedView();
+        if(job.desiredStatus===target){
+          notify('체크 변경이 Google Sheets에 저장되었습니다.','success');
+          return;
+        }
+        // A second tap happened during the request: write that newer choice.
       }
-      if(!matches(id,changes))throw new Error(networkError?'저장 요청 또는 확인에 실패했습니다. 네트워크를 확인하세요.':'저장 결과를 확인하지 못했습니다. Apps Script 실행 로그를 확인하세요.');
-      notify('저장 완료! 다른 휴대폰에서도 새로고침하면 보입니다.','success');return true;
-    } catch(err){notify(err.message,'error');return false;}
-    finally{state.saving=false;render();}
+    }catch(err){
+      if(state.pendingChecks.get(id)!==job)return;
+      state.pendingChecks.delete(id);
+      try {
+        const serverItems=await getItems();
+        applyServerItems(serverItems);
+      }catch(e){
+        const current=state.items.find(i=>i.id===id);
+        if(current)current.status=job.confirmedStatus;
+      }
+      drawCategories();render();updateConnectedView();
+      notify('체크 변경을 저장하지 못해 서버의 마지막 확인 상태로 복원했습니다. '+(err.message||''),'error');
+    }
   }
   function fillEditor(i) {
     $('#editName').value=i.name||'';
@@ -266,7 +327,7 @@
     $('#editor').showModal();
   }
   function openAddEditor() {
-    if(!state.connected||state.saving)return;
+    if(!state.connected||state.saving||state.pendingChecks.size)return;
     state.active=null;
     $('#editTitle').textContent='준비물 추가';
     fillEditor({category:$('#category').value||builtInCategories[0],priority:$('#priority').value||'필수',qty:1,estimate:0,status:'미구매',price:0});
@@ -294,6 +355,7 @@
   }
   async function persistItem(action,id,item) {
     if(state.saving)return false;
+    if(state.pendingChecks.size){notify('체크 저장이 끝난 뒤 준비물을 수정해 주세요.','info');return false;}
     state.saving=true;render();notify('Google Sheets에 저장 중입니다.');
     let networkError;
     try{await sendMutation(action,action==='delete'?{id}:{id,item});}catch(err){networkError=err;}
@@ -330,7 +392,7 @@
     safeRemove(localStorage,storageKey);
     safeRemove(localStorage,cacheKey);
     safeRemove(sessionStorage,oldSessionKey);
-    state.secret='';state.items=[];state.connected=false;state.cached=false;
+    state.secret='';state.items=[];state.connected=false;state.cached=false;state.pendingChecks.clear();
     $('#secretInput').value='';
     updateConnectedView();setTab('settings');
     notify('이 기기에 저장된 SECRET을 삭제하고 연결을 해제했습니다.','success');
