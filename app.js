@@ -119,8 +119,8 @@
     if(!Array.isArray(data.items))throw new Error('서버 목록 형식이 올바르지 않습니다.');
     return data.items.map(r=>({
       id:String(r.ID||''), category:String(r['카테고리']||''),name:String(r['품목']||''),
-      qty:Number(r['권장수량']||0),priority:String(r['우선순위']||''),estimate:Number(r['예상금액']||0),
-      status:String(r['구매상태']||'미구매'),price:Number(r['실제금액']||0),
+      priority:String(r['우선순위']||''),purchaseQty:Number(r['구매수량']||0),
+      status:String(r['구매상태']==='선물받음'?'구매완료':r['구매상태']||'미구매'),price:Number(r['실제금액']||0),
       product:String(r['구매제품']||''),memo:String(r['메모']||''),updated:String(r['수정일시']||'')
     }));
   }
@@ -138,21 +138,20 @@
   // v5 statistics: read only from the same state used by the checklist.
   // Render on every state change, including optimistic check/uncheck and cached data.
   function isPrepared(item) {
-    return item.status==='구매완료'||item.status==='선물받음';
+    return item.status==='구매완료';
   }
   function sumOf(items,key) {
     return items.reduce((total,item)=>total+(Number(item[key])||0),0);
   }
   function summarize(items) {
     const done=items.filter(isPrepared).length;
-    const remaining=items.filter(item=>!isPrepared(item));
     return {
       total:items.length,
       done,
       rate:items.length?Math.round(done/items.length*100):0,
-      estimated:sumOf(items,'estimate'),
       spent:sumOf(items,'price'),
-      remaining:sumOf(remaining,'estimate')
+      purchaseQty:sumOf(items,'purchaseQty'),
+      remaining:items.length-done
     };
   }
   function statEl(tag,cls,text) {
@@ -178,41 +177,40 @@
     $('#statsProgressCount').textContent=sum.done+' / '+sum.total+'개 준비 완료';
     $('#statsProgressBar').style.width=sum.rate+'%';
     $('#statsProgressTrack').setAttribute('aria-valuenow',String(sum.rate));
-    $('#statsEstimated').textContent=won(sum.estimated);
     $('#statsSpent').textContent=won(sum.spent);
-    $('#statsRemaining').textContent=won(sum.remaining);
-    $('#statsForecast').textContent=won(sum.spent+sum.remaining);
+    $('#statsPurchasedQty').textContent=sum.purchaseQty.toLocaleString('ko-KR')+'개';
+    $('#statsPurchasedItems').textContent=sum.done+'개';
+    $('#statsRemainingItems').textContent=sum.remaining+'개';
     const pending=state.pendingChecks.size;
     $('#statsPendingLabel').textContent=pending
       ? pending+'개 항목 저장 중 · 현재 통계는 저장 전 변경 사항을 포함합니다.'
-      : '구매완료와 선물받음을 준비 완료로 계산합니다.';
+      : '구매완료를 준비 완료로 계산합니다.';
     $('#statsSyncLabel').textContent=state.connected
       ? 'Google Sheets 연결됨'+(pending?' · 저장 중…':'')
       :state.cached?'기기 저장 목록 기준 · 최신 데이터 확인 중':'Google Sheets 연결 필요';
     const cats=[...new Set(scoped.map(i=>i.category||'미분류'))];
-    const catRows=$('#statsCategoryRows'), spendRows=$('#statsSpendRows');
+    const catRows=$('#statsCategoryRows'),spendRows=$('#statsSpendRows');
     catRows.replaceChildren();spendRows.replaceChildren();
-    if(!scoped.length) {
+    if(!scoped.length){
       catRows.append(statEl('p','stats-empty',state.items.length?'선택한 구분에 준비물이 없습니다.':'표시할 준비물이 없습니다.'));
-      spendRows.append(statEl('p','stats-empty','지출 내역이 없습니다.'));
+      spendRows.append(statEl('p','stats-empty','구매 내역이 없습니다.'));
     }else{
-      for(const cat of cats) {
+      for(const cat of cats){
         const subset=scoped.filter(i=>(i.category||'미분류')===cat);
         const data=summarize(subset);
         const row=statEl('div','stats-category-row');
         const heading=statEl('div','stats-row-head');
         heading.append(statEl('strong','',cat),statEl('span','',data.done+' / '+data.total+'개 · '+data.rate+'%'));
-        const amounts=statEl('p','stats-amount-line','예상 '+won(data.estimated)+'  ·  지출 '+won(data.spent));
+        const amounts=statEl('p','stats-amount-line','구매 금액 '+won(data.spent)+'  ·  구매 수량 '+data.purchaseQty+'개');
         row.append(heading,meter(data.rate,cat+' 준비 완료 '+data.rate+'%'),amounts);
         catRows.append(row);
       }
-      const spends=cats.map(cat=>({
-        cat,amount:sumOf(scoped.filter(i=>(i.category||'미분류')===cat),'price')
-      })).sort((a,b)=>b.amount-a.amount);
-      if(sum.spent===0) {
-        spendRows.append(statEl('p','stats-empty','실제 구매 금액을 입력하면 지출 비중이 표시됩니다.'));
-      } else {
-        for(const {cat,amount} of spends) {
+      const spends=cats.map(cat=>({cat,amount:sumOf(scoped.filter(i=>(i.category||'미분류')===cat),'price')}))
+        .sort((a,b)=>b.amount-a.amount);
+      if(sum.spent===0){
+        spendRows.append(statEl('p','stats-empty','구매 금액을 입력하면 지출 비중이 표시됩니다.'));
+      }else{
+        for(const {cat,amount} of spends){
           if(amount<=0)continue;
           const pct=100*amount/sum.spent;
           const row=statEl('div','stats-spend-row');
@@ -225,23 +223,23 @@
     }
     const priRows=$('#statsPriorityRows');
     priRows.replaceChildren();
-    for(const label of ['필수','선택','나중']) {
+    for(const label of ['필수','선택','나중']){
       const data=summarize(state.items.filter(i=>i.priority===label));
       const row=statEl('div','stats-priority-row');
       const left=statEl('div','stats-priority-left');
       left.append(statEl('strong','',label),statEl('span','',data.done+'/'+data.total+'개 완료'));
       const right=statEl('div','stats-priority-right');
-      right.append(statEl('strong','',won(data.spent)),statEl('span','','예상 '+won(data.estimated)));
+      right.append(statEl('strong','',won(data.spent)),statEl('span','','구매 수량 '+data.purchaseQty+'개'));
       row.append(left,right);priRows.append(row);
     }
   }
 
   function render() {
-    const completed=state.items.filter(i=>i.status==='구매완료'||i.status==='선물받음').length;
+    const completed=state.items.filter(isPrepared).length;
     $('#progress').textContent=completed+' / '+state.items.length;
     $('#bar').style.width=(state.items.length?100*completed/state.items.length:0)+'%';
     $('#spent').textContent=won(state.items.reduce((v,i)=>v+(Number(i.price)||0),0));
-    $('#estimate').textContent='필수 예상 '+won(state.items.filter(i=>i.priority==='필수').reduce((v,i)=>v+(Number(i.estimate)||0),0));
+    $('#purchaseQtyTotal').textContent='구매 수량 '+sumOf(state.items,'purchaseQty').toLocaleString('ko-KR')+'개';
     const q=$('#search').value.trim().toLowerCase(),cat=$('#category').value, priority=$('#priority').value, status=$('#status').value;
     const selected=state.items.filter(i=>(!cat||i.category===cat)&&(!priority||i.priority===priority)&&(!status||i.status===status)&&(!q||(i.name+' '+i.product+' '+i.memo).toLowerCase().includes(q)));
     $('#count').textContent=selected.length+'개 표시';
@@ -253,7 +251,7 @@
       wrap.append(empty);
     }
     for(const i of selected){
-      const complete=i.status==='구매완료'||i.status==='선물받음';
+      const complete=isPrepared(i);
       const pending=state.pendingChecks.has(i.id);
       const item=document.createElement('article');item.className='item'+(complete?' done':'')+(pending?' pending':'');
       const chk=document.createElement('button');chk.type='button';chk.className='check';chk.textContent=complete?'✓':'';
@@ -263,8 +261,8 @@
       chk.addEventListener('click',()=>toggleCheck(i.id));
       const info=document.createElement('div');info.className='item-content';
       const title=document.createElement('div');title.className='item-title';title.textContent=i.name;
-      const meta=document.createElement('div');meta.className='item-meta';meta.textContent=`${i.category} · ${i.priority} · 권장 ${i.qty}개 · ${i.status}${pending?' · 저장 중…':''}`;
-      const price=document.createElement('div');price.className='item-price';price.textContent=`예상 ${won(i.estimate)} · 실제 ${won(i.price)}`;
+      const meta=document.createElement('div');meta.className='item-meta';meta.textContent=`${i.category} · ${i.priority} · ${i.status}${pending?' · 저장 중…':''}`;
+      const price=document.createElement('div');price.className='item-price';price.textContent=`구매 금액 ${won(i.price)} · 구매 수량 ${i.purchaseQty||0}개`;
       info.append(title,meta,price);
       if(i.product || i.memo){const note=document.createElement('div');note.className='item-note';note.textContent=[i.product,i.memo].filter(Boolean).join(' · ');info.append(note);}
       const edit=document.createElement('button');edit.type='button';edit.className='edit';edit.textContent='수정';edit.disabled=state.saving||!state.connected||pending;edit.addEventListener('click',()=>openEditor(i));
@@ -345,7 +343,7 @@
     const item=state.items.find(i=>i.id===id);
     if(!item)return;
     const previous=item.status;
-    const next=(previous==='구매완료'||previous==='선물받음')?'미구매':'구매완료';
+    const next=previous==='구매완료'?'미구매':'구매완료';
     let job=state.pendingChecks.get(id);
     if(!job){
       job={desiredStatus:next,confirmedStatus:previous};
@@ -413,8 +411,7 @@
     $('#editName').value=i.name||'';
     $('#editCategory').value=i.category||builtInCategories[0];
     $('#editPriority').value=i.priority||'필수';
-    $('#editQty').value=i.qty||1;
-    $('#editEstimate').value=Number(i.estimate||0);
+    $('#editPurchaseQty').value=Number(i.purchaseQty||0);
     $('#editStatus').value=i.status||'미구매';
     $('#editPrice').value=Number(i.price||0);
     $('#editProduct').value=i.product||'';
@@ -434,24 +431,25 @@
     if(!state.connected||state.saving||state.pendingChecks.size)return;
     state.active=null;
     $('#editTitle').textContent='준비물 추가';
-    fillEditor({category:$('#category').value||builtInCategories[0],priority:$('#priority').value||'필수',qty:1,estimate:0,status:'미구매',price:0});
+    fillEditor({category:$('#category').value||builtInCategories[0],priority:$('#priority').value||'필수',purchaseQty:0,status:'미구매',price:0});
     $('#deleteItemBtn').hidden=true;
     $('#saveBtn').textContent='새 준비물 저장';
     $('#editor').showModal();
   }
   function formRecord() {
-    const qty=Number($('#editQty').value),estimate=Number($('#editEstimate').value),price=Number($('#editPrice').value||0);
-    if(!Number.isSafeInteger(qty)||qty<1||qty>9999)throw new Error('권장 수량은 1~9999개 사이로 입력하세요.');
-    if(!Number.isSafeInteger(estimate)||estimate<0||estimate>100000000)throw new Error('예상 금액을 확인하세요.');
-    if(!Number.isSafeInteger(price)||price<0||price>100000000)throw new Error('실제 구매 금액을 확인하세요.');
+    const purchaseQty=Number($('#editPurchaseQty').value||0);
+    const price=Number($('#editPrice').value||0);
+    if(!Number.isSafeInteger(purchaseQty)||purchaseQty<0||purchaseQty>9999)throw new Error('구매 수량은 0~9999개 사이로 입력하세요.');
+    if(!Number.isSafeInteger(price)||price<0||price>100000000)throw new Error('구매 금액을 확인하세요.');
     const name=$('#editName').value.trim();
     if(!name||name.length>80)throw new Error('품목명을 80자 이내로 입력하세요.');
-    return {name,category:$('#editCategory').value,priority:$('#editPriority').value,qty,estimate,status:$('#editStatus').value,price,product:$('#editProduct').value,memo:$('#editMemo').value};
+    return {name,category:$('#editCategory').value,priority:$('#editPriority').value,
+      purchaseQty,status:$('#editStatus').value,price,product:$('#editProduct').value,memo:$('#editMemo').value};
   }
   function verifyItem(id,item) {
     const actual=state.items.find(i=>i.id===id);
     if(!actual)return false;
-    return ['name','category','priority','qty','estimate','status','price','product','memo']
+    return ['name','category','priority','purchaseQty','status','price','product','memo']
       .every(key=>String(actual[key])===String(item[key]));
   }
   function freshId() {
@@ -471,7 +469,7 @@
         confirmed=action==='delete'?!state.items.some(i=>i.id===id):verifyItem(id,item);
         if(confirmed)break;
       }
-      if(!confirmed)throw new Error(networkError?'네트워크 오류로 저장을 확인하지 못했습니다.':'변경 사항이 반영되지 않았습니다. Apps Script를 v2 코드로 바꾸고 새 버전으로 배포했는지 확인하세요.');
+      if(!confirmed)throw new Error(networkError?'네트워크 오류로 저장을 확인하지 못했습니다.':'변경 사항이 반영되지 않았습니다. Apps Script v8 설정 및 배포를 확인하세요.');
       notify(action==='add'?'준비물을 추가했습니다.':action==='delete'?'삭제 완료! 원본은 스프레드시트 삭제보관 시트에 보관됩니다.':'준비물 수정 완료!','success');
       return true;
     }catch(err){notify(err.message||'저장 오류','error');return false;}
@@ -545,7 +543,7 @@
     // Show saved results immediately; verify with the server in the background.
     const old=readItemCache();
     if(old){
-      state.items=old.items;state.cached=true;
+      state.items=old.items.map(i=>({...i,purchaseQty:Number(i.purchaseQty||0),status:i.status==='선물받음'?'구매완료':i.status}));state.cached=true;
       drawCategories();render();
       $('#syncLabel').textContent='기기 저장 목록 · 최신 정보 확인 중…';
       updateConnectedView();
