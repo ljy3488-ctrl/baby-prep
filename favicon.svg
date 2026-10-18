@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#a58bcf"/>
+    <stop offset=".57" stop-color="#bba1de"/>
+    <stop offset="1" stop-color="#dfb6d2"/>
+  </linearGradient>
+  <radialGradient id="shine" cx=".3" cy=".2" r=".95">
+    <stop offset="0" stop-color="#ffffff" stop-opacity=".33"/>
+    <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+  </radialGradient>
+  <linearGradient id="ear" x1="0" x2=".7" y1="0" y2="1">
+    <stop offset="0" stop-color="#fffdfb"/>
+    <stop offset="1" stop-color="#fff4f0"/>
+  </linearGradient>
+  <linearGradient id="mint" x1="0" x2="1" y1="0" y2="1">
+    <stop offset="0" stop-color="#91ddc6"/>
+    <stop offset="1" stop-color="#65bfa9"/>
+  </linearGradient>
+</defs>
+<rect width="1024" height="1024" fill="url(#bg)"/>
+<rect width="1024" height="1024" fill="url(#shine)"/>
+<circle cx="112" cy="196" r="155" fill="#fff" opacity=".08"/>
+<circle cx="916" cy="812" r="230" fill="#fff" opacity=".08"/>
+<!-- tiny sparkling stars -->
+<path d="M740 225 L755 266 L796 281 L755 296 L740 337 L725 296 L684 281 L725 266 Z" fill="#fff8dc" opacity=".94"/>
+<circle cx="824" cy="366" r="12" fill="#fff9ef" opacity=".85"/>
+<circle cx="245" cy="745" r="12" fill="#fff9ef" opacity=".8"/>
+<!-- bear ears, behind face -->
+<circle cx="337" cy="384" r="113" fill="url(#ear)" stroke="#ecdded" stroke-width="14"/>
+<circle cx="687" cy="384" r="113" fill="url(#ear)" stroke="#ecdded" stroke-width="14"/>
+<circle cx="337" cy="384" r="57" fill="#f6cbd4"/>
+<circle cx="687" cy="384" r="57" fill="#f6cbd4"/>
+<!-- face -->
+<ellipse cx="512" cy="555" rx="244" ry="235" fill="url(#ear)" stroke="#efdef0" stroke-width="16"/>
+<!-- soft muzzle -->
+<ellipse cx="512" cy="619" rx="99" ry="70" fill="#ffffff" opacity=".74"/>
+<!-- eyes -->
+<ellipse cx="422" cy="540" rx="16" ry="22" fill="#53465d"/>
+<ellipse cx="604" cy="540" rx="16" ry="22" fill="#53465d"/>
+<circle cx="427" cy="532" r="5" fill="#ffffff"/>
+<circle cx="609" cy="532" r="5" fill="#ffffff"/>
+<!-- cheeks -->
+<ellipse cx="360" cy="606" rx="40" ry="25" fill="#f8bbc5" opacity=".78"/>
+<ellipse cx="664" cy="606" rx="40" ry="25" fill="#f8bbc5" opacity=".78"/>
+<!-- nose and smile -->
+<ellipse cx="512" cy="594" rx="23" ry="17" fill="#94758d"/>
+<path d="M512 608 Q493 641 469 623 M512 608 Q531 641 555 623" stroke="#94758d" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+<!-- green completion badge -->
+<circle cx="730" cy="752" r="121" fill="#fffaf4"/>
+<circle cx="730" cy="752" r="104" fill="url(#mint)"/>
+<path d="M676 748 L715 790 L790 710" fill="none" stroke="white" stroke-width="33" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
