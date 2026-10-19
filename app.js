@@ -125,7 +125,8 @@
       id:String(r.ID||''), category:String(r['카테고리']||''),name:String(r['품목']||''),
       priority:String(r['우선순위']||''),purchaseQty:Number(r['구매수량']||0),
       status:String(r['구매상태']==='선물받음'?'구매완료':r['구매상태']||'미구매'),price:Number(r['실제금액']||0),
-      product:String(r['구매제품']||''),memo:String(r['메모']||''),updated:String(r['수정일시']||''),order:Number(r['정렬순서']||0)
+      product:String(r['구매제품']||''),memo:String(r['메모']||''),updated:String(r['수정일시']||''),order:Number(r['정렬순서']||0),
+      carrot:r['당근마켓']===true||String(r['당근마켓']).toUpperCase()==='TRUE'
     }));
   }
   function drawCategories() {
@@ -302,9 +303,15 @@
     chk.addEventListener('click',()=>toggleCheck(i.id));
     const info=document.createElement('div');info.className='item-content';
     const title=document.createElement('div');title.className='item-title';title.textContent=i.name;
+    const titleRow=document.createElement('div');titleRow.className='item-name-row';titleRow.append(title);
+    if(i.carrot){
+      const badge=document.createElement('span');badge.className='carrot-badge';badge.textContent='🥕 당근 예정';
+      badge.setAttribute('aria-label','당근마켓 이용 예정');
+      titleRow.append(badge);
+    }
     const meta=document.createElement('div');meta.className='item-meta';meta.textContent=`${i.priority} · ${i.status}${pending?' · 저장 중…':''}`;
     const price=document.createElement('div');price.className='item-price';price.textContent=`구매 금액 ${won(i.price)} · 구매 수량 ${i.purchaseQty||0}개`;
-    info.append(title,meta,price);
+    info.append(titleRow,meta,price);
     if(i.product||i.memo){const note=document.createElement('div');note.className='item-note';note.textContent=[i.product,i.memo].filter(Boolean).join(' · ');info.append(note);}
     const edit=document.createElement('button');edit.type='button';edit.className='edit';edit.textContent='수정';edit.disabled=!state.connected||pending;edit.addEventListener('click',()=>openEditor(i));
     const grip=document.createElement('button');grip.type='button';grip.className='drag-handle';grip.textContent='⠿';
@@ -595,6 +602,7 @@
     $('#editPurchaseQty').value=Number(i.purchaseQty||0);
     $('#editStatus').value=i.status||'미구매';
     $('#editPrice').value=Number(i.price||0);
+    $('#editCarrot').checked=i.carrot===true;
     $('#editProduct').value=i.product||'';
     $('#editMemo').value=i.memo||'';
     $('#editorStatus').hidden=true;
@@ -625,7 +633,8 @@
     const name=$('#editName').value.trim();
     if(!name||name.length>80)throw new Error('품목명을 80자 이내로 입력하세요.');
     return {name,category:$('#editCategory').value,priority:$('#editPriority').value,
-      purchaseQty,status:$('#editStatus').value,price,product:$('#editProduct').value,memo:$('#editMemo').value};
+      purchaseQty,status:$('#editStatus').value,price,product:$('#editProduct').value,memo:$('#editMemo').value,
+      carrot:$('#editCarrot').checked};
   }
   function matchesItem(serverItems,job) {
     const actual=serverItems.find(i=>i.id===job.id);
@@ -635,8 +644,10 @@
     }
     if(job.action==='delete')return !actual;
     if(!actual)return false;
-    return ['name','category','priority','purchaseQty','status','price','product','memo']
-      .every(key=>String(actual[key])===String(job.item[key]));
+    const keys=['name','category','priority','purchaseQty','status','price','product','memo'];
+    // Old queued v16 edits did not contain the new checkbox.
+    if(typeof job.item.carrot==='boolean')keys.push('carrot');
+    return keys.every(key=>String(actual[key])===String(job.item[key]));
   }
   function freshId() {
     return 'BABY-'+Array.from(crypto.getRandomValues(new Uint8Array(8)),b=>b.toString(16).padStart(2,'0')).join('').toUpperCase();

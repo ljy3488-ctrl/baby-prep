@@ -18,9 +18,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=16">
+  <link rel="stylesheet" href="style.css?v=17">
   <script src="config.js" defer></script>
-  <script src="app.js?v=16" defer></script>
+  <script src="app.js?v=17" defer></script>
 </head>
 <body>
 <main class="wrap">
@@ -184,6 +184,10 @@
     </fieldset>
     <fieldset class="item-fields"><legend>구매 정보</legend>
     <label>구매 상태<select id="editStatus"><option>미구매</option><option>구매완료</option><option>보류</option></select></label>
+    <label class="carrot-option" for="editCarrot">
+      <input id="editCarrot" type="checkbox">
+      <span class="carrot-option-copy"><strong>🥕 당근마켓 이용 예정</strong><small>중고로 알아볼 준비물에 체크해 주세요.</small></span>
+    </label>
     <div class="numeric-grid">
       <label>구매 금액 (원)<input id="editPrice" type="number" min="0" max="100000000" step="1" inputmode="numeric"></label>
       <label>구매 수량 (개)<input id="editPurchaseQty" type="number" min="0" max="9999" step="1" inputmode="numeric" value="0"></label>
