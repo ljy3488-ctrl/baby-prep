@@ -1,8 +1,8 @@
 {
   "id": "./",
-  "name": "우리 아기 준비 현황",
-  "short_name": "아기 준비",
-  "description": "부부가 함께 확인하는 출산 준비물과 예산 현황",
+  "name": "토리 맞이 준비",
+  "short_name": "토리 맞이 준비",
+  "description": "토리 맞이 준비물과 구매 현황을 함께 관리하는 앱",
   "lang": "ko-KR",
   "start_url": "./",
   "scope": "./",
