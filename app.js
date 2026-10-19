@@ -421,7 +421,9 @@
     const button=$('#saveSecretBtn');
     state.secret=secret;
     if(fromSettings) busy(button,true,'연결 확인 중…');
-    notify(state.cached?'저장된 준비물을 먼저 표시했습니다. 최신 내용을 확인하는 중…':'저장된 SECRET으로 Google Sheets에 자동 연결하는 중…');
+    // Keep routine startup reconnection silent; show connection feedback only for manual settings changes.
+    if(fromSettings) notify('Google Sheets 연결 확인 중…');
+    else clearNotice();
     try {
       await load(false);
       if(state.items.length===0) throw new Error('Google Sheets 준비물 목록이 비어 있습니다. 시트 데이터를 확인하세요.');
@@ -434,7 +436,12 @@
       updateConnectedView();render();
       if(fromSettings) setTab('list');
       if(state.mutationQueue.length) void drainMutationQueue();
-      notify(isPersistent?'자동 연결 완료 · 다음 방문부터 SECRET 입력 없이 시작합니다.':'연결 완료 · 브라우저 저장이 차단되어 이번 접속에서만 유지됩니다.',isPersistent?'success':'info');
+      if(fromSettings) {
+        notify(isPersistent?'SECRET 저장 및 연결 완료 · 다음 방문부터 자동 연결됩니다.':'연결 완료 · 브라우저 저장이 차단되어 이번 접속에서만 유지됩니다.',isPersistent?'success':'info');
+      } else {
+        // Silent success on page load; errors and save status remain visible.
+        clearNotice();
+      }
       return true;
     } catch(err) {
       // A temporary network failure must not erase the user's saved SECRET.
