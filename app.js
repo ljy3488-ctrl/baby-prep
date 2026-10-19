@@ -51,6 +51,7 @@
       $('#'+name+'Tab').classList.toggle('active',current);
       $('#'+name+'Tab').setAttribute('aria-selected',String(current));
     }
+    document.body.dataset.view=view;
     if(view==='stats')renderStatistics();
   }
   function updateConnectedView() {
@@ -179,6 +180,7 @@
     $('#statsProgressRate').textContent=sum.rate+'%';
     $('#statsProgressCount').textContent=sum.done+' / '+sum.total+'개 준비 완료';
     $('#statsProgressBar').style.width=sum.rate+'%';
+    $('#statsProgressTrack').style.setProperty('--rate',sum.rate+'%');
     $('#statsProgressTrack').setAttribute('aria-valuenow',String(sum.rate));
     $('#statsSpent').textContent=won(sum.spent);
     $('#statsPurchasedQty').textContent=sum.purchaseQty.toLocaleString('ko-KR')+'개';
@@ -203,7 +205,7 @@
         const data=summarize(subset);
         const row=statEl('div','stats-category-row');
         const heading=statEl('div','stats-row-head');
-        heading.append(statEl('strong','',cat),statEl('span','',data.done+' / '+data.total+'개 · '+data.rate+'%'));
+        heading.append(categoryIcon(cat),statEl('strong','',cat),statEl('span','',data.done+' / '+data.total+'개 · '+data.rate+'%'));
         const amounts=statEl('p','stats-amount-line','구매 금액 '+won(data.spent)+'  ·  구매 수량 '+data.purchaseQty+'개');
         row.append(heading,meter(data.rate,cat+' 준비 완료 '+data.rate+'%'),amounts);
         catRows.append(row);
@@ -254,13 +256,38 @@
   function categoryExpanded(cat,first,filtersActive) {
     if(state.expanded.has(cat))return state.expanded.get(cat);
     // Open the first group initially; when filtering, open results for convenience.
-    return filtersActive||first;
+    // Match the compact card view in v16; stored expansion preferences still win.
+    return filtersActive;
   }
   function saveExpanded() {
     try {localStorage.setItem(categoryExpandKey,JSON.stringify([...state.expanded.entries()]));}catch(e){}
   }
   function setExpanded(cat,expanded) {
     state.expanded.set(cat,expanded);saveExpanded();render();
+  }
+  const categoryIcons = {
+    '의류·침구': ['shirt','coral'], '수유':['bottle','honey'],
+    '수면':['bed','sage'], '수면·생활':['bed','sage'],
+    '위생':['sparkle','lavender'], '목욕':['bath','lavender'],
+    '외출':['stroller','sky'], '생활·산모':['heart','coral'],
+    '추후 구매':['clock','honey']
+  };
+  const iconSvgPaths = {
+    shirt:'<path d="m8 4 4 2 4-2 5 4-3 4-2-2v11H8V10l-2 2-3-4 5-4Z"/>',
+    bottle:'<path d="M9 3h6v3H9zM10 6v3l-3 3v8a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-8l-3-3V6M9 15h6M9 19h6"/>',
+    bed:'<path d="M3 7v14M21 7v14M3 18h18M5 10h14v8H5zM7 10V7h4v3m2 0V7h4v3"/>',
+    sparkle:'<path d="m12 2 2.2 7.8L22 12l-7.8 2.2L12 22l-2.2-7.8L2 12l7.8-2.2L12 2Z"/>',
+    bath:'<path d="M3 13h18l-2 7H5l-2-7ZM7 13V8a3 3 0 0 1 6 0M6 21v1M18 21v1"/>',
+    stroller:'<path d="M4 5h7l4 10H6a5 5 0 0 1-2-4V5ZM15 15h6M7 15l-2 3h14M8 21a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3ZM18 21a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"/>',
+    heart:'<path d="M20 9c0 4-8 11-8 11S4 13 4 9a4 4 0 0 1 8-2 4 4 0 0 1 8 2Z"/>',
+    clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'
+  };
+  function categoryIcon(name) {
+    const [shape,tone]=categoryIcons[name]||['heart','coral'];
+    const outer=statEl('span','category-icon tone-'+tone);
+    outer.setAttribute('aria-hidden','true');
+    outer.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round">'+iconSvgPaths[shape]+'</svg>';
+    return outer;
   }
   function buildItem(i,allowDrag) {
     const complete=isPrepared(i);
@@ -332,8 +359,7 @@
       if(opened)section.classList.add('expanded');
       const heading=document.createElement('button');heading.type='button';heading.className='category-heading';
       heading.setAttribute('aria-expanded',String(opened));
-      const iconLabel={'의류·침구':'♧','수유':'♨','수면':'☾','수면·생활':'☾','위생':'✦','목욕':'♨','외출':'◇','생활·산모':'♡','추후 구매':'◷'}[category]||'♡';
-      heading.append(statEl('span','category-icon',iconLabel),statEl('strong','category-name',category),statEl('span','category-count',`${done}/${subset.length} 준비완료`),statEl('span','category-arrow','▾'));
+      heading.append(categoryIcon(category),statEl('strong','category-name',category),statEl('span','category-count',`${done}/${subset.length} 준비완료`),statEl('span','category-arrow','▾'));
       heading.addEventListener('click',()=>setExpanded(category,!categoryExpanded(category,ci===0,filtersActive)));
       const list=document.createElement('div');list.className='category-list';list.dataset.category=category;list.hidden=!opened;
       for(const i of subset)list.append(buildItem(i,allowDrag));

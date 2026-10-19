@@ -6,27 +6,40 @@
   <title>토리 맞이 준비</title>
   <!-- BabyPrep v10: category accordions and touch drag sorting, cloud-persisted order -->
   <!-- BabyPrep v6: home screen icons on Android and iOS -->
-  <meta name="theme-color" content="#FCF7F1">
+  <meta name="theme-color" content="#F7F7F7">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="토리 맞이 준비">
   <meta name="application-name" content="토리 맞이 준비">
-  <link rel="manifest" href="manifest.webmanifest?v=13">
+  <link rel="manifest" href="manifest.webmanifest?v=16">
   <link rel="icon" type="image/svg+xml" href="favicon.svg?v=6">
   <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=6">
   <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png?v=6">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=15">
+  <link rel="stylesheet" href="style.css?v=16">
   <script src="config.js" defer></script>
-  <script src="app.js?v=14" defer></script>
+  <script src="app.js?v=16" defer></script>
 </head>
 <body>
 <main class="wrap">
-  <header>
-    <div class="eyebrow">우리 아기와 만날 날을 준비해요 ♡</div>
-    <h1><span aria-hidden="true">🧸</span> 토리 맞이 준비</h1>
+  <header class="app-header">
+    <div class="brand-lines">
+      <h1>토리 맞이 준비 <span class="title-heart" aria-hidden="true">♡</span></h1>
+      <p>우리 아기를 위한 준비 기록</p>
+    </div>
+    <span class="baby-sticker" aria-hidden="true">
+      <svg viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="36" cy="38" r="27" fill="#FFE1D5"/>
+        <circle cx="12" cy="39" r="8" fill="#FFE1D5"/><circle cx="60" cy="39" r="8" fill="#FFE1D5"/>
+        <path d="M32 14c-7-10 4-14 9-6 2 4-1 9-5 9" stroke="#BF8C72" stroke-width="5" stroke-linecap="round"/>
+        <circle cx="27" cy="36" r="2.8" fill="#33363A"/><circle cx="45" cy="36" r="2.8" fill="#33363A"/>
+        <ellipse cx="21" cy="43" rx="6" ry="3.5" fill="#F4A69D" opacity=".7"/>
+        <ellipse cx="51" cy="43" rx="6" ry="3.5" fill="#F4A69D" opacity=".7"/>
+        <path d="M31 46c2.8 4.6 7.2 4.6 10 0" stroke="#87594B" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+    </span>
   </header>
 
 
@@ -56,14 +69,18 @@
         <div class="stat"><small>남은 준비물</small><strong id="remainingCount">0개</strong></div>
       </section>
       <div class="purchase-line"><span>구매 금액 <strong id="spent">0원</strong></span><span id="purchaseQtyTotal">구매 수량 0개</span></div>
-      <div class="toolbar"><span id="syncLabel">Google Sheets 연동</span><div class="toolbar-actions"><button id="refreshBtn" type="button">↻ 새로고침</button></div></div>
-      <div class="section-title"><div><h2>준비물 카테고리</h2><span id="count">0개 표시</span></div><button id="addItemBtn" type="button" class="add-item">＋ 준비물 추가</button></div>
-      <section class="controls"><input id="search" type="search" placeholder="준비물 검색" aria-label="준비물 검색"><div class="filters"><select id="category" aria-label="카테고리"><option value="">전체 카테고리</option></select><select id="priority" aria-label="필수 선택 구분"><option value="">전체 구분</option><option value="필수">필수</option><option value="선택">선택</option><option value="나중">나중</option></select><select id="status" aria-label="구매 상태"><option value="">전체 상태</option><option>미구매</option><option>구매완료</option><option>보류</option></select></div></section>
+      <div class="section-title"><div><h2>준비물 카테고리</h2><span id="count">0개 표시</span></div></div>
       <div class="group-toolbar" id="groupControls">
-        <span class="group-hint" id="dragHint">⠿ 손잡이를 끌어 같은 카테고리 안에서 순서를 변경할 수 있어요.</span>
         <div class="group-actions"><button type="button" id="expandAllBtn">모두 펼치기</button><button type="button" id="collapseAllBtn">모두 접기</button></div>
       </div>
+      <details class="filter-disclosure">
+        <summary><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m16 16 5 5"/></svg> 준비물 검색 · 필터 <span aria-hidden="true">⌄</span></summary>
+        <section class="controls"><input id="search" type="search" placeholder="준비물 검색" aria-label="준비물 검색"><div class="filters"><select id="category" aria-label="카테고리"><option value="">전체 카테고리</option></select><select id="priority" aria-label="필수 선택 구분"><option value="">전체 구분</option><option value="필수">필수</option><option value="선택">선택</option><option value="나중">나중</option></select><select id="status" aria-label="구매 상태"><option value="">전체 상태</option><option>미구매</option><option>구매완료</option><option>보류</option></select></div></section>
+        <div class="toolbar"><span id="syncLabel">Google Sheets 연동</span><div class="toolbar-actions"><button id="refreshBtn" type="button">↻ 새로고침</button></div></div>
+        <p class="group-hint" id="dragHint">⠿ 손잡이를 끌어 같은 카테고리 안에서 순서를 변경할 수 있어요.</p>
+      </details>
       <div id="items" class="category-groups"></div>
+      <button id="addItemBtn" type="button" class="add-item-fab" aria-label="준비물 추가"><span class="fab-plus" aria-hidden="true">+</span><span class="fab-label">준비물 추가</span></button>
       <footer>카테고리 제목을 누르면 목록이 열리고 닫힙니다. 품목의 ⠿ 손잡이로 같은 카테고리 안에서 순서를 변경할 수 있습니다. 카테고리 이동은 수정 메뉴에서 변경하세요.<br>저장 버튼을 누르면 화면에 먼저 반영됩니다. ‘저장 중’ 표시가 사라져야 Google Sheets 반영까지 완료된 것입니다.</footer>
     </div>
   </section>
@@ -76,12 +93,12 @@
       <button type="button" id="statsGoSettingsBtn" class="primary">설정에서 연결하기</button>
     </section>
     <div id="statsDashboard" hidden>
+      <div class="view-heading"><h2>준비 통계</h2><p>토리 맞이를 위한 준비 현황</p></div>
       <div class="stats-topline">
         <span id="statsSyncLabel">Google Sheets 연동 통계</span>
         <button id="statsRefreshBtn" type="button">↻ 최신 내역</button>
       </div>
       <div class="stats-heading">
-        <div><h2>구매 · 준비 통계</h2><p>입력한 구매 금액과 구매 수량, 준비완료 현황을 확인합니다.</p></div>
         <label class="stats-filter">구분 보기
           <select id="statsPriority" aria-label="통계 구분 선택">
             <option value="">전체 준비물</option>
@@ -91,18 +108,29 @@
           </select>
         </label>
       </div>
-      <div class="stats-hero">
-        <div class="stats-hero-top"><span>준비 진행률</span><strong id="statsProgressRate">0%</strong></div>
-        <div class="stats-hero-count" id="statsProgressCount">0 / 0개 준비 완료</div>
-        <div class="stats-progress-track" role="progressbar" aria-label="준비 완료율" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="statsProgressTrack"><div id="statsProgressBar"></div></div>
-        <p id="statsPendingLabel" class="stats-footnote">구매완료를 준비 완료로 계산합니다.</p>
-      </div>
-      <div class="stats-kpis">
-        <article class="stats-kpi"><span>총 구매 금액</span><strong id="statsSpent">0원</strong><small>입력한 구매 금액의 합계</small></article>
-        <article class="stats-kpi"><span>총 구매 수량</span><strong id="statsPurchasedQty">0개</strong><small>모든 품목의 구매 수량 합계</small></article>
-        <article class="stats-kpi"><span>준비 완료 품목</span><strong id="statsPurchasedItems">0개</strong><small>구매완료로 표시한 품목</small></article>
-        <article class="stats-kpi forecast"><span>남은 준비물</span><strong id="statsRemainingItems">0개</strong><small>미구매 또는 보류 중인 품목</small></article>
-      </div>
+      <section class="stats-overview-grid" aria-label="준비물 요약">
+        <article class="stats-overview"><span class="overview-icon icon-peach" aria-hidden="true">☷</span><div><span>준비한 물품</span><strong id="statsPurchasedItems">0개</strong></div></article>
+        <article class="stats-overview"><span class="overview-icon icon-cream" aria-hidden="true">✦</span><div><span>남은 준비물</span><strong id="statsRemainingItems">0개</strong></div></article>
+      </section>
+      <section class="stats-hero" aria-label="전체 진행률">
+        <div class="stats-ring-wrap">
+          <div class="stats-progress-track" role="progressbar" aria-label="준비 완료율" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="statsProgressTrack">
+            <div id="statsProgressBar" aria-hidden="true"></div>
+            <strong id="statsProgressRate">0%</strong>
+          </div>
+        </div>
+        <div class="stats-ring-details">
+          <span class="ring-label">전체 진행률</span>
+          <strong class="stats-hero-count" id="statsProgressCount">0 / 0개 준비 완료</strong>
+          <div class="ring-legend"><span class="legend-dot prepared"></span>준비완료</div>
+          <div class="ring-legend"><span class="legend-dot waiting"></span>남은 준비물</div>
+        </div>
+      </section>
+      <section class="stats-money-card" aria-label="구매 금액">
+        <div class="money-icon" aria-hidden="true">▣</div>
+        <div class="money-content"><span>구매 금액</span><strong id="statsSpent">0원</strong><small>구매 수량 <b id="statsPurchasedQty">0개</b></small></div>
+      </section>
+      <p id="statsPendingLabel" class="stats-footnote">구매완료를 준비 완료로 계산합니다.</p>
       <section class="stats-panel" aria-labelledby="statsCategoryHeading">
         <div class="stats-panel-title"><h3 id="statsCategoryHeading">카테고리별 현황</h3><small>완료 비율 · 구매 금액 · 수량</small></div>
         <div id="statsCategoryRows" class="stats-category-rows"></div>
@@ -120,9 +148,10 @@
   </section>
 
   <section id="settingsView" role="tabpanel" aria-labelledby="settingsTab" hidden>
+    <div class="view-heading settings-heading"><h2>연결 설정</h2><p>토리 맞이 준비의 동기화 설정</p></div>
     <section class="login-card settings-card">
       <div class="login-icon">⚙️</div>
-      <h2>연결 설정</h2>
+      <h3>Google Sheets 연결</h3>
       <p>Google Sheets 공유를 위한 SECRET KEY를 이 기기에 저장합니다.</p>
       <div id="secretStatus" class="connection-status" role="status" aria-live="polite">설정 확인 중…</div>
       <form id="settingsForm">
