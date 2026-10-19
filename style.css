@@ -1,4 +1,4 @@
-:root{font-family:system-ui,-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;color:#293345;background:#f7f6fb}
+:root{font-family:'Gowun Dodum',system-ui,-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;color:#293345;background:#f7f6fb}
 *{box-sizing:border-box}body{margin:0}.wrap{max-width:720px;margin:auto;padding:25px 16px 76px}
 header{padding:12px 2px 19px}.eyebrow{color:#9275b8;font-size:12px;font-weight:800;letter-spacing:1.3px}h1{font-size:27px;letter-spacing:-1px;margin:8px 0}header p{margin:0;color:#84909d;font-size:14px}
 [hidden]{display:none!important}.message{display:none;padding:12px 14px;margin:0 0 14px;border-radius:12px;font-size:13px;line-height:1.5}.message.show{display:block}.message.info{color:#4d5780;background:#eef1ff}.message.error{color:#9b3434;background:#ffeded}.message.success{color:#27755d;background:#e7f6ef}
@@ -135,3 +135,8 @@ footer{text-align:center;font-size:12px;color:#9ba2ae;line-height:1.6;margin-top
 .item.drag-source .check,.item.drag-source .edit{pointer-events:none}
 .category-group.empty-group{opacity:.75}
 @media(max-width:390px){.category-list .item{gap:7px;padding:10px 7px}.drag-handle{width:34px}.category-heading{padding:13px 12px}.category-count{font-size:10px}.group-toolbar{gap:6px}}
+
+
+/* BabyPrep v12: soft cute font refresh */
+h1,.tab,.primary,.toolbar button,.group-actions button,.section-title h2,.stats-heading h2,.stats-panel-title h3,.login-card h2,.dialog-head h2,button,input,select,textarea{font-family:'Gowun Dodum',system-ui,-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;}
+header p,.hint,.message,.stats-disclaimer,footer,.group-hint,.stat small,.stat span{letter-spacing:-0.01em;}
