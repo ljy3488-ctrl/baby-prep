@@ -6,35 +6,30 @@
   <title>토리 맞이 준비</title>
   <!-- BabyPrep v10: category accordions and touch drag sorting, cloud-persisted order -->
   <!-- BabyPrep v6: home screen icons on Android and iOS -->
-  <meta name="theme-color" content="#9a83c7">
+  <meta name="theme-color" content="#FCF7F1">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="토리 맞이 준비">
   <meta name="application-name" content="토리 맞이 준비">
-  <link rel="manifest" href="manifest.webmanifest?v=12">
+  <link rel="manifest" href="manifest.webmanifest?v=13">
   <link rel="icon" type="image/svg+xml" href="favicon.svg?v=6">
   <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=6">
   <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png?v=6">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=12">
+  <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=13">
   <script src="config.js" defer></script>
-  <script src="app.js?v=10" defer></script>
+  <script src="app.js?v=13" defer></script>
 </head>
 <body>
 <main class="wrap">
   <header>
-    <div class="eyebrow">BABY PREP · 2027.02</div>
-    <h1>토리 맞이 준비 🍼</h1>
-    <p>함께 준비하는 우리 아기의 첫 물건들</p>
+    <div class="eyebrow">우리 아기와 만날 날을 준비해요 ♡</div>
+    <h1><span aria-hidden="true">🧸</span> 토리 맞이 준비</h1>
   </header>
 
-  <nav class="tabs" role="tablist" aria-label="웹앱 메뉴">
-    <button id="listTab" type="button" role="tab" aria-selected="true" aria-controls="listView" class="tab active">🧺 준비물</button>
-    <button id="statsTab" type="button" role="tab" aria-selected="false" aria-controls="statsView" class="tab">📊 통계</button>
-    <button id="settingsTab" type="button" role="tab" aria-selected="false" aria-controls="settingsView" class="tab">⚙️ 설정</button>
-  </nav>
+
 
   <div id="message" class="message" role="status" aria-live="polite"></div>
   <div id="saveQueueBanner" class="save-queue" role="status" aria-live="polite" hidden>
@@ -51,13 +46,19 @@
     </section>
 
     <div id="dashboard" hidden>
-      <div class="toolbar"><span id="syncLabel">Google Sheets 연동</span><div class="toolbar-actions"><button id="addItemBtn" type="button" class="add-item">＋ 준비물 추가</button><button id="refreshBtn" type="button">↻ 새로고침</button></div></div>
-      <section class="stats">
-        <div class="stat"><small>준비 완료</small><strong id="progress">0 / 0</strong><div class="track"><div id="bar"></div></div></div>
-        <div class="stat"><small>구매 금액</small><strong id="spent">0원</strong><span id="purchaseQtyTotal">구매 수량 0개</span></div>
+      <section class="progress-hero" aria-label="준비 진행률">
+        <div class="progress-header"><div class="progress-main"><span class="progress-label">토리 준비 진행률</span><strong id="progressRate">0%</strong></div><div class="progress-side"><strong id="progress">0 / 0</strong><span>준비 완료</span></div></div>
+        <div class="track"><div id="bar"></div></div>
+        <p class="progress-note">♡ 하나씩 차근차근 준비하고 있어요!</p>
       </section>
+      <section class="stats" aria-label="준비물 현황">
+        <div class="stat"><small>준비한 품목</small><strong id="completedCount">0개</strong></div>
+        <div class="stat"><small>남은 준비물</small><strong id="remainingCount">0개</strong></div>
+      </section>
+      <div class="purchase-line"><span>구매 금액 <strong id="spent">0원</strong></span><span id="purchaseQtyTotal">구매 수량 0개</span></div>
+      <div class="toolbar"><span id="syncLabel">Google Sheets 연동</span><div class="toolbar-actions"><button id="refreshBtn" type="button">↻ 새로고침</button></div></div>
+      <div class="section-title"><div><h2>준비물 카테고리</h2><span id="count">0개 표시</span></div><button id="addItemBtn" type="button" class="add-item">＋ 준비물 추가</button></div>
       <section class="controls"><input id="search" type="search" placeholder="준비물 검색" aria-label="준비물 검색"><div class="filters"><select id="category" aria-label="카테고리"><option value="">전체 카테고리</option></select><select id="priority" aria-label="필수 선택 구분"><option value="">전체 구분</option><option value="필수">필수</option><option value="선택">선택</option><option value="나중">나중</option></select><select id="status" aria-label="구매 상태"><option value="">전체 상태</option><option>미구매</option><option>구매완료</option><option>보류</option></select></div></section>
-      <div class="section-title"><h2>카테고리별 준비물</h2><span id="count">0개 표시</span></div>
       <div class="group-toolbar" id="groupControls">
         <span class="group-hint" id="dragHint">⠿ 손잡이를 끌어 같은 카테고리 안에서 순서를 변경할 수 있어요.</span>
         <div class="group-actions"><button type="button" id="expandAllBtn">모두 펼치기</button><button type="button" id="collapseAllBtn">모두 접기</button></div>
@@ -136,6 +137,11 @@
       <div class="hint">저장한 SECRET은 GitHub가 아니라 <strong>현재 기기의 브라우저 저장소</strong>에 보관됩니다. 브라우저에 암호화 없이 저장되므로 공용 기기에서는 사용하지 마세요. 저장된 목록을 먼저 보여주고 최신 데이터는 자동 동기화합니다. 삭제하면 자동 연결이 해제됩니다. 사파리와 홈 화면 앱처럼 브라우저 저장 공간이 다르면 각각 최초 1회 입력해야 할 수 있습니다.</div>
     </section>
   </section>
+  <nav class="tabs" role="tablist" aria-label="웹앱 메뉴">
+    <button id="listTab" type="button" role="tab" aria-selected="true" aria-controls="listView" class="tab active"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4.5h6M9 10l2 2 4-4M9 16h6"/></svg><span>준비물</span></button>
+    <button id="statsTab" type="button" role="tab" aria-selected="false" aria-controls="statsView" class="tab"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V12M12 20V5M19 20V9" stroke-linecap="round"/></svg><span>통계</span></button>
+    <button id="settingsTab" type="button" role="tab" aria-selected="false" aria-controls="settingsView" class="tab"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M10 2h4l.6 2.5 2 1.1 2.5-.7 2 3.4-1.8 1.9v2.3l1.8 1.9-2 3.4-2.5-.7-2 1.1L14 21h-4l-.6-2.5-2-1.1-2.5.7-2-3.4 1.8-1.9v-2.3L3 8.6l2-3.4 2.5.7 2-1.1L10 2z"/></svg><span>설정</span></button>
+  </nav>
 </main>
 
 <dialog id="editor">

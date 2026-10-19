@@ -302,6 +302,9 @@
   function render() {
     const completed=state.items.filter(isPrepared).length;
     $('#progress').textContent=completed+' / '+state.items.length;
+    $('#progressRate').textContent=(state.items.length?Math.round(100*completed/state.items.length):0)+'%';
+    $('#completedCount').textContent=completed+'개';
+    $('#remainingCount').textContent=(state.items.length-completed)+'개';
     $('#bar').style.width=(state.items.length?100*completed/state.items.length:0)+'%';
     $('#spent').textContent=won(state.items.reduce((v,i)=>v+(Number(i.price)||0),0));
     $('#purchaseQtyTotal').textContent='구매 수량 '+sumOf(state.items,'purchaseQty').toLocaleString('ko-KR')+'개';
@@ -329,7 +332,8 @@
       if(opened)section.classList.add('expanded');
       const heading=document.createElement('button');heading.type='button';heading.className='category-heading';
       heading.setAttribute('aria-expanded',String(opened));
-      heading.append(statEl('span','category-arrow','▾'),statEl('strong','category-name',category),statEl('span','category-count',`${done}/${subset.length} 완료`));
+      const iconLabel={'의류·침구':'♧','수유':'♨','수면':'☾','수면·생활':'☾','위생':'✦','목욕':'♨','외출':'◇','생활·산모':'♡','추후 구매':'◷'}[category]||'♡';
+      heading.append(statEl('span','category-icon',iconLabel),statEl('strong','category-name',category),statEl('span','category-count',`${done}/${subset.length} 준비완료`),statEl('span','category-arrow','▾'));
       heading.addEventListener('click',()=>setExpanded(category,!categoryExpanded(category,ci===0,filtersActive)));
       const list=document.createElement('div');list.className='category-list';list.dataset.category=category;list.hidden=!opened;
       for(const i of subset)list.append(buildItem(i,allowDrag));
