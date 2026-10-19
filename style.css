@@ -268,3 +268,12 @@ input:focus,select:focus,textarea:focus{border-color:#e89c84;outline:2px solid #
   .tab{font-size:12px;min-height:48px}.tab svg{width:21px;height:21px}
 }
 @media(prefers-reduced-motion:reduce){.track div,.category-arrow,.stats-progress-track>div{transition:none;}}
+
+
+/* BabyPrep v15: slightly darker text for better readability */
+:root{color:#33373d !important;}
+body,.wrap,.item,.stat,.stats-kpi,.stats-panel,.category-group,.login-card,.settings-card,.save-queue{color:#33373d;}
+h1,.section-title h2,.stats-heading h2,.stats-panel-title h3,.category-name,.item-title,.dialog-head h2,.login-card h2,.settings-card h2,strong{color:#23262b !important;}
+header p,.item-meta,.item-note,.stat small,.stat span,.hint,.message,.section-title span,.stats-topline,.stats-heading p,.stats-panel-title small,.stats-amount-line,.stats-priority-left span,.stats-priority-right span,.stats-disclaimer,.toolbar,.connection-status,.filter-empty,footer{color:#666c75 !important;}
+input,select,textarea,button,.tab,.toolbar button,.stats-topline button,.save-queue button{color:#33373d;}
+.item-price{color:#745a8f !important;}
