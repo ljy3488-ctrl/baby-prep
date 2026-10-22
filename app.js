@@ -15,11 +15,14 @@
     pendingEdits:new Map(), mutationQueue:[], mutationBusy:false, mutationFailed:false, expanded:new Map(), drag:null,
     familyMonth:null, familySelectedDate:null, familySavedEvents:[], familyServerEvents:[],
     familyLoaded:false, familyLoading:false, familySaving:false, familyEditingId:null, familyPendingId:null,
-    familyQueue:[], familySyncBusy:false, familySyncFailed:false, familyRevision:0};
+    familyQueue:[], familySyncBusy:false, familySyncFailed:false, familyRevision:0,
+    familyLastSyncAt:0, familyCacheAt:0, familySyncEpoch:0};
   const builtInCategories=['의류·침구','수유','수면','위생','목욕','외출','생활·산모','추후 구매'];
   const TORI_DUE_DATE = new Date(2027,1,17); // 2027-02-17 local time
   const DAY_MS = 24*60*60*1000;
   const API = String(window.BABY_PREP_API_URL || '').trim();
+  const FAMILY_RESUME_SYNC_MS=60*1000; // Don't issue a new Sheets read on every quick app switch.
+  let connectSequence=0; // Reject stale parallel responses after a settings/reconnect change.
 
   function safeRead(store,key) {
     try { return store.getItem(key) || ''; } catch(e) { return ''; }
@@ -69,7 +72,7 @@
       renderFamilyCalendar();
       if(state.connected){
         if(state.familyQueue.length)void drainFamilyQueue();
-        else void loadFamilyEvents();
+        else void loadFamilyEvents(); // Cached items remain on screen during refresh.
       }
     }
   }
@@ -358,7 +361,18 @@
     state.familyServerEvents=events.map(r=>({...r}));
     state.familySavedEvents=overlayFamilyPending(state.familyServerEvents);
     state.familyLoaded=true;
-    try{localStorage.setItem(familyCacheKey,JSON.stringify({api:API,events:state.familyServerEvents}));}catch(e){}
+    state.familyLastSyncAt=Date.now();
+    state.familyCacheAt=state.familyLastSyncAt;
+    // Keep only server-verified events in the cache. Unconfirmed edits have a separate journal.
+    try{localStorage.setItem(familyCacheKey,JSON.stringify({api:API,events:state.familyServerEvents,savedAt:state.familyCacheAt}));}catch(e){}
+  }
+  function familySyncedMessage(count) {
+    return `Google Sheets 최신 확인 · 기념일 ${count}개 · ${new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})}`;
+  }
+  function familyCachedMessage() {
+    if(state.familyQueue.length)return `${state.familyQueue.length}건 저장 대기 · 화면에 먼저 반영했습니다.`;
+    if(state.familyLoaded)return `저장된 일정 ${state.familyServerEvents.length}개 먼저 표시 · Google Sheets 최신 확인 중…`;
+    return 'Google Sheets 가족 일정 불러오는 중…';
   }
   function familyJobPending(id) {
     return state.familyQueue.some(job=>job.id===id);
@@ -375,6 +389,8 @@
       if(cache&&cache.api===API&&Array.isArray(cache.events)){
         state.familyServerEvents=cache.events.filter(r=>r&&typeof r.id==='string'&&parseLocalDate(String(r.date||'')));
         state.familyLoaded=true;
+        // Older v21 caches did not contain savedAt; still show their events immediately.
+        state.familyCacheAt=Number.isFinite(cache.savedAt)?cache.savedAt:0;
       }
     }catch(e){}
     try {
@@ -387,25 +403,29 @@
     }catch(e){}
     state.familySavedEvents=overlayFamilyPending(state.familyServerEvents);
     if(state.familyQueue.length)state.familyLoaded=true;
+    familyStatus(familyCachedMessage());
   }
   async function loadFamilyEvents() {
     if(!state.connected||state.familyLoading||state.familySyncBusy)return;
     state.familyLoading=true;
     const loadedRevision=state.familyRevision;
-    familyStatus(state.familyQueue.length?'저장 대기 중인 일정 확인 중…':'가족달력 동기화 중…');
+    const syncEpoch=++state.familySyncEpoch;
+    const sourceSecret=state.secret;
+    familyStatus(familyCachedMessage());
     updateFamilySyncUI();
     try {
       const events=await getFamilyItems();
-      if(loadedRevision!==state.familyRevision)return; // Ignore older reads after a save.
+      if(syncEpoch!==state.familySyncEpoch||sourceSecret!==state.secret||loadedRevision!==state.familyRevision)return; // Don't apply obsolete reads.
       applyFamilyServerEvents(events);
-      familyStatus(state.familyQueue.length?`${state.familyQueue.length}건 저장 대기 · 화면에 먼저 반영됐습니다.`:`Google Sheets 공유됨 · 직접 등록한 일정 ${events.length}개`);
+      familyStatus(state.familyQueue.length?`${state.familyQueue.length}건 저장 대기 · 화면에 먼저 반영됐습니다.`:familySyncedMessage(events.length));
       renderFamilyCalendar();
       if(state.familyQueue.length)void drainFamilyQueue();
     }catch(error) {
-      familyStatus('가족달력 연결 실패 · '+(error.message||'다시 시도해 주세요.'),true);
+      if(syncEpoch===state.familySyncEpoch&&sourceSecret===state.secret)
+        familyStatus((state.familyLoaded?'저장된 일정은 계속 표시 중 · ':'')+'최신 정보 확인 실패: '+(error.message||'다시 시도해 주세요.'),true);
       // Cached and pending events remain visible on transient errors.
     }finally {
-      state.familyLoading=false;updateFamilySyncUI();
+      if(syncEpoch===state.familySyncEpoch){state.familyLoading=false;updateFamilySyncUI();}
     }
   }
   function familyEventDisplay(title,details,auto=false,recordId='') {
@@ -472,8 +492,12 @@
   function renderFamilyManaged() {
     const target=$('#familyManagedEvents');target.replaceChildren();
     const rows=[...state.familySavedEvents].sort((a,b)=>a.date.localeCompare(b.date));
-    if(!state.familyLoaded){const p=document.createElement('p');p.className='family-empty';p.textContent='연결 후 가족 일정을 불러옵니다.';target.append(p);return;}
-    if(!rows.length){const p=document.createElement('p');p.className='family-empty';p.textContent='아직 등록한 일정이 없어요. 기념일을 추가해 보세요.';target.append(p);return;}
+    if(!state.familyLoaded){const p=document.createElement('p');p.className='family-empty';p.textContent='가족 일정을 불러오는 중입니다. 잠시 후 다시 확인해 주세요.';target.append(p);return;}
+    if(!rows.length){
+      const p=document.createElement('p');p.className='family-empty';
+      p.textContent=state.familyLastSyncAt===0 ? '등록한 가족 일정을 확인 중입니다. 최신 정보가 오면 자동 표시됩니다.' : '아직 등록한 일정이 없어요. 기념일을 추가해 보세요.';
+      target.append(p);return;
+    }
     for(const r of rows)target.append(familyEventDisplay(r.title,`${r.date} · ${r.category} · ${r.repeat}`,false,r.id));
   }
   function selectFamilyDay(date) {
@@ -857,6 +881,21 @@
     // Keep routine startup reconnection silent; show connection feedback only for manual settings changes.
     if(fromSettings) notify('Google Sheets 연결 확인 중…');
     else clearNotice();
+    // v22: Fetch family dates in parallel with the checklist on startup.
+    // Its result never blocks the checklist and cannot replace unconfirmed edits.
+    const sequence=++connectSequence;
+    const syncEpoch=++state.familySyncEpoch;
+    // A new authentication attempt supersedes older unfinished calendar reads.
+    state.familyLoading=false;
+    const familyRevisionAtStart=state.familyRevision;
+    const prefetchFamily=!state.familyQueue.length && !state.familySyncBusy;
+    let warmup=null;
+    if(prefetchFamily){
+      state.familyLoading=true;
+      familyStatus(familyCachedMessage());
+      updateFamilySyncUI();
+      warmup=getFamilyItems().then(events=>({events}),error=>({error}));
+    }
     try {
       await load(false);
       if(state.items.length===0) throw new Error('Google Sheets 준비물 목록이 비어 있습니다. 시트 데이터를 확인하세요.');
@@ -870,6 +909,27 @@
       if(fromSettings) setTab('list');
       if(state.mutationQueue.length) void drainMutationQueue();
       if(state.familyQueue.length)void drainFamilyQueue();
+      if(warmup) {
+        // Attach immediately so a slow family GET cannot delay the first usable screen.
+        void warmup.then(({events,error})=>{
+          if(sequence!==connectSequence||syncEpoch!==state.familySyncEpoch||state.secret!==secret||!state.connected)return;
+          if(events&&state.familyRevision===familyRevisionAtStart&&!state.familyQueue.length){
+            applyFamilyServerEvents(events);
+            renderFamilyCalendar();
+            familyStatus(familySyncedMessage(events.length));
+          } else if(error){
+            familyStatus((state.familyLoaded?'저장된 일정은 계속 표시 중 · ':'')+'최신 정보 확인 실패: '+(error.message||'다시 시도해 주세요.'),true);
+          }
+        }).finally(()=>{
+          if(sequence===connectSequence&&syncEpoch===state.familySyncEpoch){
+            state.familyLoading=false;
+            updateFamilySyncUI();
+          }
+        });
+      } else if(!state.familyQueue.length && !state.familyLoading){
+        // In case a prefetch was skipped, still synchronize the family page.
+        void loadFamilyEvents();
+      }
       if(fromSettings) {
         notify(isPersistent?'SECRET 저장 및 연결 완료 · 다음 방문부터 자동 연결됩니다.':'연결 완료 · 브라우저 저장이 차단되어 이번 접속에서만 유지됩니다.',isPersistent?'success':'info');
       } else {
@@ -878,6 +938,8 @@
       }
       return true;
     } catch(err) {
+      // Do not overwrite the last verified family cache if the primary connection fails.
+      if(sequence===connectSequence&&syncEpoch===state.familySyncEpoch){state.familyLoading=false;updateFamilySyncUI();}
       // A temporary network failure must not erase the user's saved SECRET.
       if(fromSettings && previousConnected){
         state.secret=previousSecret;state.connected=true;
@@ -1205,7 +1267,18 @@
     if(window.confirm('이 기념일을 공유 달력에서 삭제할까요?'))void saveFamilyRecord(true);
   });
   $('#retrySaveBtn').addEventListener('click',()=>{void drainMutationQueue();});
-  window.addEventListener('online',()=>{if(state.mutationQueue.length)void drainMutationQueue();if(state.familyQueue.length)void drainFamilyQueue();});
+  window.addEventListener('online',()=>{
+    if(state.mutationQueue.length)void drainMutationQueue();
+    if(state.familyQueue.length)void drainFamilyQueue();
+    else if(state.connected)void loadFamilyEvents();
+  });
+  // Returning to the app checks for changes made by the other parent.
+  // Cached entries stay visible while the remote check runs.
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState!=='visible'||!state.connected)return;
+    if(state.familyQueue.length){void drainFamilyQueue();return;}
+    if(Date.now()-state.familyLastSyncAt>=FAMILY_RESUME_SYNC_MS)void loadFamilyEvents();
+  });
   $('#settingsForm').addEventListener('submit',e=>{
     e.preventDefault();
     const secret=$('#secretInput').value;
