@@ -18,9 +18,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=17">
+  <link rel="stylesheet" href="style.css?v=19">
   <script src="config.js" defer></script>
-  <script src="app.js?v=18" defer></script>
+  <script src="app.js?v=19" defer></script>
 </head>
 <body>
 <main class="wrap">
@@ -147,6 +147,48 @@
     </div>
   </section>
 
+  <section id="familyView" role="tabpanel" aria-labelledby="familyTab" hidden>
+    <div class="view-heading family-heading"><h2>가족 달력</h2><p>토리와 우리 가족의 소중한 날을 한눈에</p></div>
+    <section class="family-hero-card" aria-label="토리 디데이">
+      <div class="family-hero-copy">
+        <span class="family-badge">토리 탄생 예정일</span>
+        <strong id="familyDueDateLabel">2027. 02. 17</strong>
+        <p id="familyDdayText">D-0</p>
+      </div>
+      <div class="family-hero-side">
+        <div class="family-mini-kpi"><span>오늘 기준</span><strong id="familyWeeksText">임신 주차 계산 중</strong></div>
+        <div class="family-mini-kpi"><span>다가오는 일정</span><strong id="familyNextEventText">확인 중</strong></div>
+      </div>
+    </section>
+
+    <section class="family-panel family-calendar-card" aria-labelledby="familyCalendarHeading">
+      <div class="stats-panel-title family-calendar-title">
+        <h3 id="familyCalendarHeading">우리 가족 기념일 달력</h3>
+        <div class="family-calendar-nav">
+          <button type="button" id="familyPrevMonthBtn" aria-label="이전 달">‹</button>
+          <strong id="familyMonthLabel">2027년 2월</strong>
+          <button type="button" id="familyNextMonthBtn" aria-label="다음 달">›</button>
+        </div>
+      </div>
+      <div class="family-weekdays" aria-hidden="true">
+        <span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span>
+      </div>
+      <div id="familyCalendarGrid" class="family-calendar-grid"></div>
+    </section>
+
+    <section class="family-panel" aria-labelledby="familyUpcomingHeading">
+      <div class="stats-panel-title"><h3 id="familyUpcomingHeading">다가오는 기념일</h3><small>토리 기준 자동 계산</small></div>
+      <div id="familyUpcomingList" class="family-upcoming-list"></div>
+    </section>
+
+    <section class="family-panel" aria-labelledby="familyMilestoneHeading">
+      <div class="stats-panel-title"><h3 id="familyMilestoneHeading">자동 기념일</h3><small>출산 예정일 기준</small></div>
+      <div id="familyMilestoneChips" class="family-milestone-chips"></div>
+      <p class="stats-disclaimer family-note">현재는 토리 예정일을 기준으로 자동 기념일만 표시합니다. 나중에 원하시면 가족별 사용자 기념일 추가/수정 기능도 연결할 수 있어요.</p>
+    </section>
+  </section>
+
+
   <section id="settingsView" role="tabpanel" aria-labelledby="settingsTab" hidden>
     <div class="view-heading settings-heading"><h2>연결 설정</h2><p>토리 맞이 준비의 동기화 설정</p></div>
     <section class="login-card settings-card">
@@ -169,6 +211,7 @@
   <nav class="tabs" role="tablist" aria-label="웹앱 메뉴">
     <button id="listTab" type="button" role="tab" aria-selected="true" aria-controls="listView" class="tab active"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4.5h6M9 10l2 2 4-4M9 16h6"/></svg><span>준비물</span></button>
     <button id="statsTab" type="button" role="tab" aria-selected="false" aria-controls="statsView" class="tab"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V12M12 20V5M19 20V9" stroke-linecap="round"/></svg><span>통계</span></button>
+    <button id="familyTab" type="button" role="tab" aria-selected="false" aria-controls="familyView" class="tab"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M7 3.5v3M17 3.5v3M3.5 9.5h17"/><circle cx="8" cy="13.5" r=".8" fill="currentColor" stroke="none"/><circle cx="12" cy="13.5" r=".8" fill="currentColor" stroke="none"/><circle cx="16" cy="13.5" r=".8" fill="currentColor" stroke="none"/><circle cx="8" cy="17" r=".8" fill="currentColor" stroke="none"/></svg><span>달력</span></button>
     <button id="settingsTab" type="button" role="tab" aria-selected="false" aria-controls="settingsView" class="tab"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M10 2h4l.6 2.5 2 1.1 2.5-.7 2 3.4-1.8 1.9v2.3l1.8 1.9-2 3.4-2.5-.7-2 1.1L14 21h-4l-.6-2.5-2-1.1-2.5.7-2-3.4 1.8-1.9v-2.3L3 8.6l2-3.4 2.5.7 2-1.1L10 2z"/></svg><span>설정</span></button>
   </nav>
 </main>
