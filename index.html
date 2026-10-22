@@ -18,9 +18,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=19">
+  <link rel="stylesheet" href="style.css?v=20">
   <script src="config.js" defer></script>
-  <script src="app.js?v=19" defer></script>
+  <script src="app.js?v=20" defer></script>
 </head>
 <body>
 <main class="wrap">
@@ -148,7 +148,14 @@
   </section>
 
   <section id="familyView" role="tabpanel" aria-labelledby="familyTab" hidden>
-    <div class="view-heading family-heading"><h2>가족 달력</h2><p>토리와 우리 가족의 소중한 날을 한눈에</p></div>
+    <div class="family-page-head">
+      <div class="view-heading family-heading"><h2>가족 달력</h2><p>토리와 우리 가족의 소중한 날을 한눈에</p></div>
+      <button id="familyAddBtn" type="button" class="family-add-btn" disabled>＋ 기념일 추가</button>
+    </div>
+    <div class="family-status-row" role="status" aria-live="polite">
+      <span id="familySyncStatus">Google Sheets 연결 시 가족 일정이 표시됩니다.</span>
+      <button type="button" id="familyRefreshBtn" aria-label="가족달력 새로고침">↻ 새로고침</button>
+    </div>
     <section class="family-hero-card" aria-label="토리 디데이">
       <div class="family-hero-copy">
         <span class="family-badge">토리 탄생 예정일</span>
@@ -174,6 +181,16 @@
         <span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span>
       </div>
       <div id="familyCalendarGrid" class="family-calendar-grid"></div>
+      <p class="family-calendar-hint">날짜를 누르면 해당 날짜의 일정을 확인하거나 추가할 수 있어요.</p>
+    </section>
+
+    <section class="family-panel" aria-labelledby="familySelectedHeading">
+      <div class="family-selected-heading">
+        <h3 id="familySelectedHeading">선택한 날짜의 일정</h3>
+        <button type="button" id="familyAddOnDayBtn" class="family-add-inline" disabled>+ 이 날짜에 추가</button>
+      </div>
+      <p id="familySelectedDateLabel" class="family-selected-date">2027. 02. 17</p>
+      <div id="familySelectedList" class="family-events-list"></div>
     </section>
 
     <section class="family-panel" aria-labelledby="familyUpcomingHeading">
@@ -181,10 +198,15 @@
       <div id="familyUpcomingList" class="family-upcoming-list"></div>
     </section>
 
+    <section class="family-panel" aria-labelledby="familyMyEventsHeading">
+      <div class="family-selected-heading"><h3 id="familyMyEventsHeading">직접 등록한 일정</h3><span class="family-inline-hint">등록한 일정의 수정·삭제</span></div>
+      <div id="familyManagedEvents" class="family-events-list"></div>
+    </section>
+
     <section class="family-panel" aria-labelledby="familyMilestoneHeading">
       <div class="stats-panel-title"><h3 id="familyMilestoneHeading">자동 기념일</h3><small>출산 예정일 기준</small></div>
       <div id="familyMilestoneChips" class="family-milestone-chips"></div>
-      <p class="stats-disclaimer family-note">현재는 토리 예정일을 기준으로 자동 기념일만 표시합니다. 나중에 원하시면 가족별 사용자 기념일 추가/수정 기능도 연결할 수 있어요.</p>
+      <p class="stats-disclaimer family-note">토리 출산 예정일(2027. 2. 17.) 기준 자동 계산입니다. 실제 출생일이 달라지면 자동 기념일 기준도 추후 조정할 수 있습니다. 자동 기념일은 수정·삭제되지 않습니다.</p>
     </section>
   </section>
 
@@ -241,6 +263,23 @@
     <p id="editorStatus" class="editor-status" role="alert" hidden></p>
     <button type="submit" id="saveBtn" class="primary">변경사항 저장</button>
     <button type="button" id="deleteItemBtn" class="outline-danger" hidden>이 준비물 삭제</button>
+  </form>
+</dialog>
+
+<dialog id="familyEditor" aria-labelledby="familyEditorTitle">
+  <form id="familyEditForm">
+    <div class="dialog-head"><h2 id="familyEditorTitle">기념일 추가</h2><button id="familyCancelBtn" class="close" type="button" aria-label="닫기">✕</button></div>
+    <p class="family-editor-tip">우리 가족의 특별한 날을 공유 달력에 등록해요.</p>
+    <label>기념일 이름 <input id="familyEditTitle" maxlength="80" required placeholder="예: 결혼기념일"></label>
+    <label>날짜 <input id="familyEditDate" type="date" required min="1900-01-01" max="2099-12-31"></label>
+    <div class="family-edit-grid">
+      <label>종류 <select id="familyEditCategory" required><option>가족 기념일</option><option>아기 일정</option><option>병원/검진</option><option>기타</option></select></label>
+      <label>반복 <select id="familyEditRepeat" required><option>한 번</option><option>매년</option><option>매월</option></select></label>
+    </div>
+    <label>메모 (선택) <textarea id="familyEditNote" maxlength="300" rows="3" placeholder="기억하고 싶은 내용"></textarea></label>
+    <p id="familyEditorStatus" class="editor-status" role="status" aria-live="polite" hidden></p>
+    <button id="familySaveBtn" class="primary" type="submit">저장하기</button>
+    <button id="familyDeleteBtn" class="outline-danger" type="button" hidden>이 기념일 삭제</button>
   </form>
 </dialog>
 </body>

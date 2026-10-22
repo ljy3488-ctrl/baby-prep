@@ -11,7 +11,8 @@
   const categoryExpandKey='bp-expanded-categories-v10';
   const state = {items: [], secret:'', connected:false, cached:false, active:null, pendingChecks:new Map(),
     pendingEdits:new Map(), mutationQueue:[], mutationBusy:false, mutationFailed:false, expanded:new Map(), drag:null,
-    familyMonth:null};
+    familyMonth:null, familySelectedDate:'2027-02-17', familySavedEvents:[], familyLoaded:false, familyLoading:false,
+    familySaving:false, familyEditingId:null, familyPendingId:null};
   const builtInCategories=['의류·침구','수유','수면','위생','목욕','외출','생활·산모','추후 구매'];
   const TORI_DUE_DATE = new Date(2027,1,17); // 2027-02-17 local time
   const DAY_MS = 24*60*60*1000;
@@ -56,7 +57,7 @@
     }
     document.body.dataset.view=view;
     if(view==='stats')renderStatistics();
-    if(view==='family')renderFamilyCalendar();
+    if(view==='family'){renderFamilyCalendar();if(state.connected)void loadFamilyEvents();}
   }
   function updateConnectedView() {
     const showList=state.connected||state.cached;
@@ -74,6 +75,8 @@
       : hasSaved?'SECRET이 저장되어 있습니다. 자동 연결을 시도합니다.':'SECRET이 등록되지 않았습니다.';
     $('#forgetSecretBtn').disabled=state.pendingChecks.size>0||state.pendingEdits.size>0||(!hasSaved&&!state.connected);
     $('#addItemBtn').disabled=!state.connected;
+    $('#familyAddBtn').disabled=!state.connected;
+    $('#familyAddOnDayBtn').disabled=!state.connected;
   }
 
 
@@ -103,11 +106,11 @@
       throw new Error('config.js 파일에 Apps Script /exec 주소를 입력해야 합니다.');
     }
   }
-  async function listFromSheets() {
+  async function listFromSheets(action='list') {
     checkConfig();
     const random=nonce(), ts=String(Date.now()), callback='babyCb_'+random;
-    const sig=await signature('GET',ts,random,'list',callback);
-    const params=new URLSearchParams({action:'list',ts,nonce:random,callback,sig});
+    const sig=await signature('GET',ts,random,action,callback);
+    const params=new URLSearchParams({action,ts,nonce:random,callback,sig});
     return await new Promise((resolve,reject)=>{
       const script=document.createElement('script');let settled=false;
       const timeout=setTimeout(()=>finish(new Error('응답 시간이 초과되었습니다. 인터넷 연결과 배포 권한을 확인하세요.')),30000);
@@ -245,130 +248,274 @@
   }
 
 
+  // Family calendar: editable events are stored separately from 준비물.
+  const familyCategories=['가족 기념일','아기 일정','병원/검진','기타'];
+  const familyRepeats=['한 번','매년','매월'];
   function stripTime(date) {
-    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    return new Date(date.getFullYear(),date.getMonth(),date.getDate());
   }
   function addDays(date, days) {
-    const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    d.setDate(d.getDate() + days);
-    return d;
+    const d=stripTime(date);d.setDate(d.getDate()+days);return d;
   }
-  function formatDateLabel(date, withWeekday=false) {
-    const weekdays=['일','월','화','수','목','금','토'];
-    const base = `${date.getFullYear()}. ${String(date.getMonth()+1).padStart(2,'0')}. ${String(date.getDate()).padStart(2,'0')}`;
-    return withWeekday ? `${base} (${weekdays[date.getDay()]})` : base;
+  function isoDate(date) {
+    return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+  }
+  function parseLocalDate(text) {
+    if(typeof text!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(text))return null;
+    const [y,m,d]=text.split('-').map(Number);
+    const dt=new Date(y,m-1,d);
+    return dt.getFullYear()===y&&dt.getMonth()===m-1&&dt.getDate()===d?dt:null;
+  }
+  function dateLabel(date,weekday=false) {
+    const w=['일','월','화','수','목','금','토'];
+    const str=`${date.getFullYear()}. ${String(date.getMonth()+1).padStart(2,'0')}. ${String(date.getDate()).padStart(2,'0')}`;
+    return weekday?`${str} (${w[date.getDay()]})`:str;
   }
   function daysBetween(a,b) {
-    return Math.round((stripTime(b)-stripTime(a))/DAY_MS);
+    // Use UTC calendar-day arithmetic to avoid daylight saving offsets.
+    const utc=d=>Date.UTC(d.getFullYear(),d.getMonth(),d.getDate());
+    return Math.round((utc(b)-utc(a))/DAY_MS);
   }
-  function familyEvents() {
+  function autoFamilyEvents() {
     return [
-      {id:'due', title:'토리 탄생 예정일', date: new Date(TORI_DUE_DATE), kind:'main', note:'기다리고 있는 가장 큰 날'},
-      {id:'50', title:'토리 50일', date:addDays(TORI_DUE_DATE, 50), kind:'sub', note:'작은 성장 기념일'},
-      {id:'100', title:'토리 100일', date:addDays(TORI_DUE_DATE, 100), kind:'sub', note:'백일 기념일'},
-      {id:'200', title:'토리 200일', date:addDays(TORI_DUE_DATE, 200), kind:'sub', note:'성장 앨범에 남기기 좋은 날'},
-      {id:'1y', title:'토리 첫돌', date:addDays(TORI_DUE_DATE, 365), kind:'sub', note:'첫 번째 생일'}
-    ].sort((a,b)=>a.date-b.date);
+      {id:'auto-due',title:'토리 탄생 예정일',date:new Date(TORI_DUE_DATE),kind:'main',note:'출산 예정일 · 실제 출생일과 다를 수 있어요'},
+      {id:'auto-50',title:'토리 50일',date:addDays(TORI_DUE_DATE,50),kind:'sub',note:'예정일 기준 자동 계산'},
+      {id:'auto-100',title:'토리 100일',date:addDays(TORI_DUE_DATE,100),kind:'sub',note:'예정일 기준 자동 계산'},
+      {id:'auto-200',title:'토리 200일',date:addDays(TORI_DUE_DATE,200),kind:'sub',note:'예정일 기준 자동 계산'},
+      {id:'auto-1y',title:'토리 첫돌',date:new Date(TORI_DUE_DATE.getFullYear()+1,TORI_DUE_DATE.getMonth(),TORI_DUE_DATE.getDate()),kind:'sub',note:'예정일 기준 자동 계산'}
+    ];
   }
-  function familyEventMap(events) {
-    const map = new Map();
-    for(const event of events) {
-      const key = `${event.date.getFullYear()}-${event.date.getMonth()+1}-${event.date.getDate()}`;
-      if(!map.has(key)) map.set(key, []);
-      map.get(key).push(event);
+  function occurrenceForMonth(row,year,month) {
+    const start=parseLocalDate(row.date);
+    if(!start)return null;
+    if(row.repeat==='한 번')return start.getFullYear()===year&&start.getMonth()===month?start:null;
+    if(row.repeat==='매년' && start.getMonth()!==month)return null;
+    const candidate=new Date(year,month,Math.min(start.getDate(),new Date(year,month+1,0).getDate()));
+    return candidate>=start?candidate:null;
+  }
+  function occurrenceEvents(from,to) {
+    const result=autoFamilyEvents().filter(e=>e.date>=from&&e.date<=to);
+    for(const row of state.familySavedEvents) {
+      if(!parseLocalDate(row.date))continue;
+      let y=from.getFullYear(),m=from.getMonth();
+      while(y<to.getFullYear()||(y===to.getFullYear()&&m<=to.getMonth())) {
+        const when=occurrenceForMonth(row,y,m);
+        if(when&&when>=from&&when<=to) {
+          result.push({id:row.id,seriesId:row.id,title:row.title,date:when,kind:'custom',category:row.category,repeat:row.repeat,note:row.note});
+        }
+        m++;if(m>11){m=0;y++;}
+      }
     }
-    return map;
+    return result.sort((a,b)=>a.date-b.date||(a.kind==='main'?-1:0));
+  }
+  function dayMatches(day,events) {
+    return events.filter(e=>isoDate(e.date)===day);
+  }
+  function familyStatus(message,error=false) {
+    const el=$('#familySyncStatus');
+    el.textContent=message;el.classList.toggle('error',error);
+  }
+  async function getFamilyItems() {
+    const response=await listFromSheets('familyList');
+    if(!response||!response.ok||!Array.isArray(response.events))throw new Error((response&&response.error)||'기념일을 읽을 수 없습니다.');
+    return response.events.filter(r=>r&&/^FAM-[A-F0-9]{16}$/.test(String(r.id||''))&&parseLocalDate(String(r.date||''))&&familyCategories.includes(r.category)&&familyRepeats.includes(r.repeat))
+      .map(r=>({id:String(r.id),title:String(r.title),date:String(r.date),category:r.category,repeat:r.repeat,note:String(r.note||'')}));
+  }
+  async function loadFamilyEvents() {
+    if(!state.connected||state.familyLoading||state.familySaving)return;
+    state.familyLoading=true;
+    familyStatus('가족달력 동기화 중…');
+    $('#familyRefreshBtn').disabled=true;
+    try {
+      const events=await getFamilyItems();
+      state.familySavedEvents=events;state.familyLoaded=true;
+      familyStatus(`Google Sheets 공유됨 · 직접 등록한 일정 ${events.length}개`);
+      renderFamilyCalendar();
+    }catch(error) {
+      familyStatus('가족달력 연결 실패 · '+(error.message||'다시 시도해 주세요.'),true);
+      // Keep last loaded events on transient errors; do not erase user data.
+    }finally {
+      state.familyLoading=false;$('#familyRefreshBtn').disabled=false;
+    }
+  }
+  function familyEventDisplay(title,details,auto=false,recordId='') {
+    const item=document.createElement('article');item.className='family-event-item';
+    const copy=document.createElement('div');copy.className='family-event-copy';
+    const name=document.createElement('strong');name.textContent=title;
+    const sub=document.createElement('span');sub.textContent=details;
+    copy.append(name,sub);item.append(copy);
+    if(!auto&&recordId){
+      const button=document.createElement('button');button.type='button';button.className='family-edit-button';button.textContent='수정';
+      button.disabled=!state.connected;
+      button.addEventListener('click',()=>openFamilyEditor(recordId));
+      item.append(button);
+    }else {
+      const tag=document.createElement('span');tag.className='family-auto-label';tag.textContent='자동';item.append(tag);
+    }
+    return item;
   }
   function renderFamilySummary(events) {
-    const today = stripTime(new Date());
-    $('#familyDueDateLabel').textContent = formatDateLabel(TORI_DUE_DATE, true);
-    const untilDue = daysBetween(today, TORI_DUE_DATE);
-    $('#familyDdayText').textContent = untilDue >= 0 ? `D-${untilDue}` : `D+${Math.abs(untilDue)}`;
-    const weeks = Math.max(0, 40 - Math.floor(untilDue/7));
-    $('#familyWeeksText').textContent = untilDue >= 0 ? `약 ${weeks}주차` : `${Math.floor(Math.abs(untilDue)/7)+1}주 지남`;
-    const next = events.find(ev => stripTime(ev.date) >= today) || events[events.length-1];
-    const diff = daysBetween(today, next.date);
-    $('#familyNextEventText').textContent = `${next.title} · ${diff >= 0 ? `D-${diff}` : `D+${Math.abs(diff)}`}`;
-
-    const upcoming = $('#familyUpcomingList');
-    upcoming.replaceChildren();
-    for(const event of events) {
-      const days = daysBetween(today, event.date);
-      if(days < -30) continue;
-      const card = document.createElement('article');
-      card.className = 'family-upcoming-card'+(event.kind==='main'?' primary':'');
-      const meta = document.createElement('div');
-      meta.className = 'family-upcoming-meta';
-      const tag = document.createElement('span');
-      tag.className = 'family-event-tag';
-      tag.textContent = event.kind==='main' ? '핵심 일정' : '자동 기념일';
-      const ttl = document.createElement('strong'); ttl.textContent = event.title;
-      const date = document.createElement('span'); date.textContent = formatDateLabel(event.date, true);
-      meta.append(tag, ttl, date);
-      const dday = document.createElement('div');
-      dday.className = 'family-upcoming-dday';
-      dday.innerHTML = `<b>${days >= 0 ? `D-${days}` : `D+${Math.abs(days)}`}</b><small>${event.note}</small>`;
-      card.append(meta, dday);
-      upcoming.append(card);
+    const today=stripTime(new Date()), untilDue=daysBetween(today,TORI_DUE_DATE);
+    $('#familyDueDateLabel').textContent=dateLabel(TORI_DUE_DATE,true);
+    $('#familyDdayText').textContent=untilDue>=0?`D-${untilDue}`:`D+${Math.abs(untilDue)}`;
+    const weeks=Math.max(0,40-Math.floor(untilDue/7));
+    $('#familyWeeksText').textContent=untilDue>=0?`약 ${weeks}주차`:`${Math.floor(Math.abs(untilDue)/7)+1}주 지남`;
+    const next=events.find(e=>e.date>=today);
+    $('#familyNextEventText').textContent=next?`${next.title} · ${daysBetween(today,next.date)===0?'오늘':'D-'+daysBetween(today,next.date)}`:'예정된 일정 없음';
+    const upcoming=$('#familyUpcomingList');upcoming.replaceChildren();
+    const upcomingEvents=events.filter(e=>e.date>=today).slice(0,8);
+    if(!upcomingEvents.length){const empty=document.createElement('p');empty.className='family-empty';empty.textContent='앞으로 다가오는 일정이 없습니다.';upcoming.append(empty);}
+    for(const event of upcomingEvents) {
+      const days=daysBetween(today,event.date), card=document.createElement('article');
+      card.className='family-upcoming-card'+(event.kind==='main'?' primary':'');
+      const meta=document.createElement('div');meta.className='family-upcoming-meta';
+      const tag=document.createElement('span');tag.className='family-event-tag';tag.textContent=event.kind==='custom'?event.category:'자동 기념일';
+      const name=document.createElement('strong');name.textContent=event.title;
+      const date=document.createElement('span');date.textContent=dateLabel(event.date,true);
+      meta.append(tag,name,date);
+      const right=document.createElement('div');right.className='family-upcoming-dday';
+      const d=document.createElement('b');d.textContent=days===0?'D-Day':`D-${days}`;
+      right.append(d);
+      if(event.kind==='custom'){
+        const edit=document.createElement('button');edit.type='button';edit.className='family-edit-mini';edit.textContent='수정';edit.disabled=!state.connected;
+        edit.addEventListener('click',()=>openFamilyEditor(event.seriesId));right.append(edit);
+      }
+      card.append(meta,right);upcoming.append(card);
     }
-
-    const chips = $('#familyMilestoneChips');
-    chips.replaceChildren();
-    for(const event of events) {
-      const chip = document.createElement('div');
-      chip.className = 'family-chip';
-      chip.innerHTML = `<strong>${event.title}</strong><span>${formatDateLabel(event.date)}</span>`;
-      chips.append(chip);
+    const chips=$('#familyMilestoneChips');chips.replaceChildren();
+    for(const e of autoFamilyEvents()) {
+      const chip=document.createElement('div');chip.className='family-chip';
+      const title=document.createElement('strong');title.textContent=e.title;
+      const date=document.createElement('span');date.textContent=dateLabel(e.date);
+      chip.append(title,date);chips.append(chip);
     }
   }
+  function renderFamilySelected(events) {
+    const date=parseLocalDate(state.familySelectedDate)||TORI_DUE_DATE;
+    $('#familySelectedDateLabel').textContent=dateLabel(date,true);
+    const list=$('#familySelectedList');list.replaceChildren();
+    const same=dayMatches(isoDate(date),events);
+    if(!same.length){const empty=document.createElement('p');empty.className='family-empty';empty.textContent='이 날짜에는 등록된 일정이 없습니다.';list.append(empty);}
+    else for(const event of same) list.append(familyEventDisplay(event.title,event.kind==='custom'?`${event.category} · ${event.repeat}${event.note?' · '+event.note:''}`:'토리 예정일 기준 자동 계산',event.kind!=='custom',event.seriesId||''));
+  }
+  function renderFamilyManaged() {
+    const target=$('#familyManagedEvents');target.replaceChildren();
+    const rows=[...state.familySavedEvents].sort((a,b)=>a.date.localeCompare(b.date));
+    if(!state.familyLoaded){const p=document.createElement('p');p.className='family-empty';p.textContent='연결 후 가족 일정을 불러옵니다.';target.append(p);return;}
+    if(!rows.length){const p=document.createElement('p');p.className='family-empty';p.textContent='아직 등록한 일정이 없어요. 기념일을 추가해 보세요.';target.append(p);return;}
+    for(const r of rows)target.append(familyEventDisplay(r.title,`${r.date} · ${r.category} · ${r.repeat}`,false,r.id));
+  }
+  function selectFamilyDay(date) {
+    state.familySelectedDate=isoDate(date);renderFamilyCalendar();
+  }
   function renderFamilyCalendar() {
-    const events = familyEvents();
-    renderFamilySummary(events);
-    if(!state.familyMonth) state.familyMonth = new Date(TORI_DUE_DATE.getFullYear(), TORI_DUE_DATE.getMonth(), 1);
-    const month = new Date(state.familyMonth.getFullYear(), state.familyMonth.getMonth(), 1);
-    $('#familyMonthLabel').textContent = `${month.getFullYear()}년 ${month.getMonth()+1}월`;
-    const startDay = new Date(month.getFullYear(), month.getMonth(), 1).getDay();
-    const daysInMonth = new Date(month.getFullYear(), month.getMonth()+1, 0).getDate();
-    const prevDays = new Date(month.getFullYear(), month.getMonth(), 0).getDate();
-    const eventMap = familyEventMap(events);
-    const grid = $('#familyCalendarGrid');
-    grid.replaceChildren();
+    if(!state.familyMonth)state.familyMonth=new Date(TORI_DUE_DATE.getFullYear(),TORI_DUE_DATE.getMonth(),1);
+    const month=new Date(state.familyMonth.getFullYear(),state.familyMonth.getMonth(),1);
+    const gridStart=new Date(month.getFullYear(),month.getMonth(),1-month.getDay());
+    const gridEnd=addDays(gridStart,41);
+    const displayed=occurrenceEvents(gridStart,gridEnd);
+    const today=stripTime(new Date());
+    const upcoming=occurrenceEvents(today,addDays(today,400));
+    renderFamilySummary(upcoming);renderFamilyManaged();
+    renderFamilySelected(displayed);
+    $('#familyMonthLabel').textContent=`${month.getFullYear()}년 ${month.getMonth()+1}월`;
+    const grid=$('#familyCalendarGrid');grid.replaceChildren();
     for(let i=0;i<42;i++) {
-      const cell = document.createElement('div');
-      cell.className = 'family-day';
-      let date;
-      if(i < startDay) {
-        const day = prevDays - startDay + i + 1;
-        date = new Date(month.getFullYear(), month.getMonth()-1, day);
-        cell.classList.add('muted');
-      } else if(i >= startDay + daysInMonth) {
-        const day = i - (startDay + daysInMonth) + 1;
-        date = new Date(month.getFullYear(), month.getMonth()+1, day);
-        cell.classList.add('muted');
-      } else {
-        const day = i - startDay + 1;
-        date = new Date(month.getFullYear(), month.getMonth(), day);
-      }
-      const key = `${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()}`;
-      const matches = eventMap.get(key) || [];
-      if(matches.length) cell.classList.add('has-event');
-      if(daysBetween(stripTime(new Date()), date)===0) cell.classList.add('today');
-      if(date.getFullYear()===TORI_DUE_DATE.getFullYear() && date.getMonth()===TORI_DUE_DATE.getMonth() && date.getDate()===TORI_DUE_DATE.getDate()) cell.classList.add('due');
-      const num = document.createElement('span'); num.className='family-day-num'; num.textContent = String(date.getDate());
+      const date=addDays(gridStart,i),dateString=isoDate(date);
+      const matches=dayMatches(dateString,displayed);
+      const cell=document.createElement('button');cell.type='button';cell.className='family-day';
+      if(date.getMonth()!==month.getMonth())cell.classList.add('muted');
+      if(dateString===isoDate(today))cell.classList.add('today');
+      if(dateString===isoDate(TORI_DUE_DATE))cell.classList.add('due');
+      if(dateString===state.familySelectedDate)cell.classList.add('selected');
+      if(matches.length)cell.classList.add('has-event');
+      cell.setAttribute('aria-label',`${dateLabel(date,true)}${matches.length?': '+matches.map(e=>e.title).join(', '):''}`);
+      const num=document.createElement('span');num.className='family-day-num';num.textContent=String(date.getDate());
       cell.append(num);
       if(matches.length) {
-        const dots = document.createElement('div'); dots.className='family-day-dots';
-        for(const ev of matches.slice(0,2)) {
-          const dot = document.createElement('span'); dot.className='family-day-dot'+(ev.kind==='main'?' primary':'');
+        const dots=document.createElement('div');dots.className='family-day-dots';
+        for(const event of matches.slice(0,3)) {
+          const dot=document.createElement('span');dot.className='family-day-dot'+(event.kind==='main'?' primary':event.kind==='custom'?' custom':'');
           dots.append(dot);
         }
-        const label = document.createElement('small'); label.className='family-day-label'; label.textContent = matches[0].title.replace('토리 ','');
-        cell.append(dots, label);
+        const label=document.createElement('small');label.className='family-day-label';label.textContent=matches[0].title.replace('토리 ','');
+        cell.append(dots,label);
       }
+      cell.addEventListener('click',()=>selectFamilyDay(date));
       grid.append(cell);
     }
   }
-
+  function familyFormStatus(text,error=false) {
+    const el=$('#familyEditorStatus');el.hidden=!text;el.textContent=text||'';el.className='editor-status'+(error?' error':'');
+  }
+  function familyEditorBusy(on) {
+    state.familySaving=on;
+    for(const el of $('#familyEditForm').querySelectorAll('input,select,textarea,button'))el.disabled=on;
+    $('#familySaveBtn').textContent=on?'Google Sheets 저장 확인 중…':'저장하기';
+  }
+  function openFamilyEditor(id=null,dateText=null) {
+    if(!state.connected){familyStatus('설정에서 Google Sheets를 연결하면 기념일을 추가할 수 있습니다.',true);return;}
+    const source=id?state.familySavedEvents.find(e=>e.id===id):null;
+    if(id&&!source){familyStatus('일정을 찾지 못했습니다. 새로고침해 주세요.',true);return;}
+    state.familyEditingId=id||null;state.familyPendingId=null;
+    $('#familyEditorTitle').textContent=id?'기념일 수정':'기념일 추가';
+    $('#familyEditTitle').value=source?.title||'';
+    $('#familyEditDate').value=source?.date||dateText||isoDate(new Date());
+    $('#familyEditCategory').value=source?.category||'가족 기념일';
+    $('#familyEditRepeat').value=source?.repeat||'한 번';
+    $('#familyEditNote').value=source?.note||'';
+    $('#familyDeleteBtn').hidden=!source;
+    familyFormStatus('');
+    $('#familyEditor').showModal();
+  }
+  function familyRecordFromForm() {
+    const title=$('#familyEditTitle').value.trim(),date=$('#familyEditDate').value;
+    if(!title||title.length>80)throw new Error('기념일 이름은 1~80자로 입력하세요.');
+    if(!parseLocalDate(date)||!/^\d{4}-\d{2}-\d{2}$/.test(date))throw new Error('올바른 날짜를 입력하세요.');
+    const category=$('#familyEditCategory').value,repeat=$('#familyEditRepeat').value;
+    if(!familyCategories.includes(category)||!familyRepeats.includes(repeat))throw new Error('종류 또는 반복 설정이 올바르지 않습니다.');
+    const note=$('#familyEditNote').value;
+    if(note.length>300)throw new Error('메모는 300자 이하로 입력해 주세요.');
+    return {title,date,category,repeat,note};
+  }
+  async function confirmFamilyMutation(action,id,record) {
+    for(const pause of [0,250,550,1000,1700,2800]) {
+      if(pause)await new Promise(resolve=>setTimeout(resolve,pause));
+      let items;
+      try{items=await getFamilyItems();}catch(e){if(pause===2800)throw e;continue;}
+      const found=items.find(x=>x.id===id);
+      const same=found&&record&&['title','date','category','repeat','note'].every(k=>found[k]===record[k]);
+      if((action==='familyDelete'&&!found)||(action!=='familyDelete'&&same))return items;
+    }
+    throw new Error('서버에서 변경 내용을 아직 확인하지 못했습니다. 새로고침으로 확인해 주세요.');
+  }
+  async function saveFamilyRecord(deleteMode=false) {
+    if(state.familySaving||!state.connected)return;
+    let record=null,action,id,retryAdd=false;
+    try {
+      action=deleteMode?'familyDelete':state.familyEditingId?'familyEdit':'familyAdd';
+      id=state.familyEditingId||state.familyPendingId||('FAM-'+Array.from(crypto.getRandomValues(new Uint8Array(8)),b=>b.toString(16).padStart(2,'0')).join('').toUpperCase());
+      if(!deleteMode)record=familyRecordFromForm();
+      retryAdd=action==='familyAdd'&&Boolean(state.familyPendingId);
+      if(action==='familyAdd')state.familyPendingId=id;
+    }catch(e){familyFormStatus(e.message,true);return;}
+    familyEditorBusy(true);familyFormStatus('Google Sheets에 저장하고 확인하는 중입니다.');
+    try {
+      // When a previous attempt timed out, do not blindly duplicate the add.
+      const before=retryAdd?await getFamilyItems():null;
+      const already=before&&before.find(x=>x.id===id);
+      if(!already)await sendMutation(action,deleteMode?{id}:{id,event:record});
+      const items=await confirmFamilyMutation(action,id,record);
+      state.familySavedEvents=items;state.familyLoaded=true;
+      if(!deleteMode&&record){const d=parseLocalDate(record.date);state.familyMonth=new Date(d.getFullYear(),d.getMonth(),1);state.familySelectedDate=record.date;}
+      $('#familyEditor').close();
+      familyStatus(deleteMode?'기념일이 삭제되고 공유 시트에 반영됐습니다.':'기념일이 저장되고 공유 시트에 반영됐습니다.');
+      renderFamilyCalendar();
+    }catch(e) {
+      familyFormStatus('저장 확인 실패: '+(e.message||'네트워크 상태를 확인하세요.')+' 중복 추가를 피하려면 새로고침으로 시트를 확인해 주세요.',true);
+      familyStatus('일정 저장 확인이 필요합니다. 새로고침을 눌러 확인하세요.',true);
+    }finally{familyEditorBusy(false);}
+  }
 
   function compareItems(a,b) {
     const ao=Number(a.order),bo=Number(b.order);
@@ -922,6 +1069,15 @@
     if(!state.familyMonth) state.familyMonth = new Date(TORI_DUE_DATE.getFullYear(), TORI_DUE_DATE.getMonth(), 1);
     state.familyMonth = new Date(state.familyMonth.getFullYear(), state.familyMonth.getMonth()+1, 1);
     renderFamilyCalendar();
+  });
+  $('#familyAddBtn').addEventListener('click',()=>openFamilyEditor(null,isoDate(new Date())));
+  $('#familyAddOnDayBtn').addEventListener('click',()=>openFamilyEditor(null,state.familySelectedDate));
+  $('#familyRefreshBtn').addEventListener('click',()=>{void loadFamilyEvents();});
+  $('#familyCancelBtn').addEventListener('click',()=>{if(!state.familySaving)$('#familyEditor').close();});
+  $('#familyEditForm').addEventListener('submit',e=>{e.preventDefault();void saveFamilyRecord(false);});
+  $('#familyDeleteBtn').addEventListener('click',()=>{
+    if(state.familySaving)return;
+    if(window.confirm('이 기념일을 공유 달력에서 삭제할까요?'))void saveFamilyRecord(true);
   });
   $('#retrySaveBtn').addEventListener('click',()=>{void drainMutationQueue();});
   window.addEventListener('online',()=>{if(state.mutationQueue.length)void drainMutationQueue();});
