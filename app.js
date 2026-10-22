@@ -9,10 +9,13 @@
   const cacheKey = 'bp-items-cache-v3';
   const journalKey = 'bp-pending-edits-v9'; // retain v9 queue across updates
   const categoryExpandKey='bp-expanded-categories-v10';
+  const familyJournalKey='bp-family-pending-v21';
+  const familyCacheKey='bp-family-verified-v21';
   const state = {items: [], secret:'', connected:false, cached:false, active:null, pendingChecks:new Map(),
     pendingEdits:new Map(), mutationQueue:[], mutationBusy:false, mutationFailed:false, expanded:new Map(), drag:null,
-    familyMonth:null, familySelectedDate:'2027-02-17', familySavedEvents:[], familyLoaded:false, familyLoading:false,
-    familySaving:false, familyEditingId:null, familyPendingId:null};
+    familyMonth:null, familySelectedDate:null, familySavedEvents:[], familyServerEvents:[],
+    familyLoaded:false, familyLoading:false, familySaving:false, familyEditingId:null, familyPendingId:null,
+    familyQueue:[], familySyncBusy:false, familySyncFailed:false, familyRevision:0};
   const builtInCategories=['의류·침구','수유','수면','위생','목욕','외출','생활·산모','추후 구매'];
   const TORI_DUE_DATE = new Date(2027,1,17); // 2027-02-17 local time
   const DAY_MS = 24*60*60*1000;
@@ -57,7 +60,18 @@
     }
     document.body.dataset.view=view;
     if(view==='stats')renderStatistics();
-    if(view==='family'){renderFamilyCalendar();if(state.connected)void loadFamilyEvents();}
+    if(view==='family'){
+      // Whenever the user opens the family tab, start at the current local month/day.
+      // Manual month navigation remains in place until they leave this tab.
+      const today=new Date();
+      state.familyMonth=new Date(today.getFullYear(),today.getMonth(),1);
+      state.familySelectedDate=isoDate(today);
+      renderFamilyCalendar();
+      if(state.connected){
+        if(state.familyQueue.length)void drainFamilyQueue();
+        else void loadFamilyEvents();
+      }
+    }
   }
   function updateConnectedView() {
     const showList=state.connected||state.cached;
@@ -73,7 +87,7 @@
       ? `연결됨 · 준비물 ${state.items.length}개 · 자동 연결 ${hasPersistent?'켜짐':'저장 불가(이 세션만)'}`
       : state.cached?'저장된 목록 표시 중 · Google Sheets 연결 확인 전에는 수정할 수 없습니다.'
       : hasSaved?'SECRET이 저장되어 있습니다. 자동 연결을 시도합니다.':'SECRET이 등록되지 않았습니다.';
-    $('#forgetSecretBtn').disabled=state.pendingChecks.size>0||state.pendingEdits.size>0||(!hasSaved&&!state.connected);
+    $('#forgetSecretBtn').disabled=state.pendingChecks.size>0||state.pendingEdits.size>0||state.familyQueue.length>0||(!hasSaved&&!state.connected);
     $('#addItemBtn').disabled=!state.connected;
     $('#familyAddBtn').disabled=!state.connected;
     $('#familyAddOnDayBtn').disabled=!state.connected;
@@ -321,21 +335,77 @@
     return response.events.filter(r=>r&&/^FAM-[A-F0-9]{16}$/.test(String(r.id||''))&&parseLocalDate(String(r.date||''))&&familyCategories.includes(r.category)&&familyRepeats.includes(r.repeat))
       .map(r=>({id:String(r.id),title:String(r.title),date:String(r.date),category:r.category,repeat:r.repeat,note:String(r.note||'')}));
   }
+  function overlayFamilyPending(serverEvents) {
+    const rows=serverEvents.map(r=>({...r}));
+    for(const job of state.familyQueue) {
+      const index=rows.findIndex(r=>r.id===job.id);
+      if(job.action==='familyDelete') {
+        if(index>=0)rows.splice(index,1);
+      } else if(index>=0) rows[index]={...rows[index],...job.record,id:job.id};
+      else rows.push({...job.record,id:job.id});
+    }
+    return rows;
+  }
+  function persistFamilyJournal() {
+    try {
+      if(!state.familyQueue.length)localStorage.removeItem(familyJournalKey);
+      else localStorage.setItem(familyJournalKey,JSON.stringify({api:API,jobs:state.familyQueue}));
+      return true;
+    }catch(e){return false;}
+  }
+  function applyFamilyServerEvents(events) {
+    state.familyRevision++;
+    state.familyServerEvents=events.map(r=>({...r}));
+    state.familySavedEvents=overlayFamilyPending(state.familyServerEvents);
+    state.familyLoaded=true;
+    try{localStorage.setItem(familyCacheKey,JSON.stringify({api:API,events:state.familyServerEvents}));}catch(e){}
+  }
+  function familyJobPending(id) {
+    return state.familyQueue.some(job=>job.id===id);
+  }
+  function updateFamilySyncUI() {
+    $('#familyRetryBtn').hidden=!(state.familySyncFailed&&state.familyQueue.length);
+    $('#familyRefreshBtn').disabled=state.familyLoading||state.familySyncBusy;
+    const hasSaved=Boolean(safeRead(localStorage,storageKey)||safeRead(sessionStorage,oldSessionKey));
+    $('#forgetSecretBtn').disabled=state.pendingChecks.size>0||state.pendingEdits.size>0||state.familyQueue.length>0||(!hasSaved&&!state.connected);
+  }
+  function restoreFamilyJournal() {
+    try {
+      const cache=JSON.parse(safeRead(localStorage,familyCacheKey)||'null');
+      if(cache&&cache.api===API&&Array.isArray(cache.events)){
+        state.familyServerEvents=cache.events.filter(r=>r&&typeof r.id==='string'&&parseLocalDate(String(r.date||'')));
+        state.familyLoaded=true;
+      }
+    }catch(e){}
+    try {
+      const journal=JSON.parse(safeRead(localStorage,familyJournalKey)||'null');
+      if(journal&&journal.api===API&&Array.isArray(journal.jobs)) {
+        state.familyQueue=journal.jobs.filter(job=>job&&['familyAdd','familyEdit','familyDelete'].includes(job.action)&&/^FAM-[A-F0-9]{16}$/.test(String(job.id||''))&&
+          (job.action==='familyDelete'||(job.record&&parseLocalDate(job.record.date)&&familyCategories.includes(job.record.category)&&familyRepeats.includes(job.record.repeat)))).map(job=>({...job,needsReconcile:true}));
+        persistFamilyJournal();
+      }
+    }catch(e){}
+    state.familySavedEvents=overlayFamilyPending(state.familyServerEvents);
+    if(state.familyQueue.length)state.familyLoaded=true;
+  }
   async function loadFamilyEvents() {
-    if(!state.connected||state.familyLoading||state.familySaving)return;
+    if(!state.connected||state.familyLoading||state.familySyncBusy)return;
     state.familyLoading=true;
-    familyStatus('가족달력 동기화 중…');
-    $('#familyRefreshBtn').disabled=true;
+    const loadedRevision=state.familyRevision;
+    familyStatus(state.familyQueue.length?'저장 대기 중인 일정 확인 중…':'가족달력 동기화 중…');
+    updateFamilySyncUI();
     try {
       const events=await getFamilyItems();
-      state.familySavedEvents=events;state.familyLoaded=true;
-      familyStatus(`Google Sheets 공유됨 · 직접 등록한 일정 ${events.length}개`);
+      if(loadedRevision!==state.familyRevision)return; // Ignore older reads after a save.
+      applyFamilyServerEvents(events);
+      familyStatus(state.familyQueue.length?`${state.familyQueue.length}건 저장 대기 · 화면에 먼저 반영됐습니다.`:`Google Sheets 공유됨 · 직접 등록한 일정 ${events.length}개`);
       renderFamilyCalendar();
+      if(state.familyQueue.length)void drainFamilyQueue();
     }catch(error) {
       familyStatus('가족달력 연결 실패 · '+(error.message||'다시 시도해 주세요.'),true);
-      // Keep last loaded events on transient errors; do not erase user data.
+      // Cached and pending events remain visible on transient errors.
     }finally {
-      state.familyLoading=false;$('#familyRefreshBtn').disabled=false;
+      state.familyLoading=false;updateFamilySyncUI();
     }
   }
   function familyEventDisplay(title,details,auto=false,recordId='') {
@@ -346,7 +416,7 @@
     copy.append(name,sub);item.append(copy);
     if(!auto&&recordId){
       const button=document.createElement('button');button.type='button';button.className='family-edit-button';button.textContent='수정';
-      button.disabled=!state.connected;
+      button.disabled=!state.connected||familyJobPending(recordId);
       button.addEventListener('click',()=>openFamilyEditor(recordId));
       item.append(button);
     }else {
@@ -378,6 +448,7 @@
       right.append(d);
       if(event.kind==='custom'){
         const edit=document.createElement('button');edit.type='button';edit.className='family-edit-mini';edit.textContent='수정';edit.disabled=!state.connected;
+        edit.disabled=familyJobPending(event.seriesId);
         edit.addEventListener('click',()=>openFamilyEditor(event.seriesId));right.append(edit);
       }
       card.append(meta,right);upcoming.append(card);
@@ -409,7 +480,7 @@
     state.familySelectedDate=isoDate(date);renderFamilyCalendar();
   }
   function renderFamilyCalendar() {
-    if(!state.familyMonth)state.familyMonth=new Date(TORI_DUE_DATE.getFullYear(),TORI_DUE_DATE.getMonth(),1);
+    if(!state.familyMonth){const today=new Date();state.familyMonth=new Date(today.getFullYear(),today.getMonth(),1);}
     const month=new Date(state.familyMonth.getFullYear(),state.familyMonth.getMonth(),1);
     const gridStart=new Date(month.getFullYear(),month.getMonth(),1-month.getDay());
     const gridEnd=addDays(gridStart,41);
@@ -457,6 +528,7 @@
     if(!state.connected){familyStatus('설정에서 Google Sheets를 연결하면 기념일을 추가할 수 있습니다.',true);return;}
     const source=id?state.familySavedEvents.find(e=>e.id===id):null;
     if(id&&!source){familyStatus('일정을 찾지 못했습니다. 새로고침해 주세요.',true);return;}
+    if(id&&familyJobPending(id)){familyStatus('이 일정은 시트 저장 중입니다. 완료되면 수정할 수 있어요.',true);return;}
     state.familyEditingId=id||null;state.familyPendingId=null;
     $('#familyEditorTitle').textContent=id?'기념일 수정':'기념일 추가';
     $('#familyEditTitle').value=source?.title||'';
@@ -489,32 +561,83 @@
     }
     throw new Error('서버에서 변경 내용을 아직 확인하지 못했습니다. 새로고침으로 확인해 주세요.');
   }
-  async function saveFamilyRecord(deleteMode=false) {
+  function familyMutationMatches(items,job) {
+    const found=items.find(row=>row.id===job.id);
+    if(job.action==='familyDelete')return !found;
+    return Boolean(found&&job.record&&['title','date','category','repeat','note'].every(key=>found[key]===job.record[key]));
+  }
+  async function drainFamilyQueue() {
+    if(!state.connected||state.familySyncBusy||!state.familyQueue.length)return;
+    state.familySyncBusy=true;state.familySyncFailed=false;
+    updateFamilySyncUI();
+    familyStatus(`Google Sheets에 ${state.familyQueue.length}건 저장 확인 중…`);
+    try {
+      while(state.connected&&state.familyQueue.length) {
+        const job=state.familyQueue[0];
+        let confirmed=null;
+        if(job.needsReconcile) {
+          // Recover interrupted/uncertain requests without duplicating events.
+          try {
+            const current=await getFamilyItems();
+            if(familyMutationMatches(current,job))confirmed=current;
+          }catch(e){}
+        }
+        if(!confirmed) {
+          // Once the request can reach the server, persist uncertainty before POST.
+          job.needsReconcile=true;
+          persistFamilyJournal();
+          let postError=null;
+          try {
+            await sendMutation(job.action,job.action==='familyDelete'?{id:job.id}:{id:job.id,event:job.record});
+          }catch(e){postError=e;}
+          try {
+            confirmed=await confirmFamilyMutation(job.action,job.id,job.record);
+          }catch(e){throw postError||e;}
+        }
+        // Remove only the confirmed mutation, then overlay any later unsent edits.
+        state.familyQueue.shift();
+        persistFamilyJournal();
+        applyFamilyServerEvents(confirmed);
+        renderFamilyCalendar();
+        updateFamilySyncUI();
+        if(state.familyQueue.length)familyStatus(`Google Sheets에 ${state.familyQueue.length}건 더 저장 중…`);
+      }
+      familyStatus(`Google Sheets 저장 완료 · 직접 등록한 일정 ${state.familyServerEvents.length}개`);
+    }catch(error) {
+      state.familySyncFailed=true;
+      familyStatus('시트 저장 확인이 필요합니다. 내용은 이 기기에 저장 대기로 남아 있습니다. [재시도]를 눌러 주세요. '+(error.message||''),true);
+    }finally {
+      state.familySyncBusy=false;
+      updateFamilySyncUI();
+    }
+  }
+  function saveFamilyRecord(deleteMode=false) {
     if(state.familySaving||!state.connected)return;
-    let record=null,action,id,retryAdd=false;
+    let record=null,action,id;
     try {
       action=deleteMode?'familyDelete':state.familyEditingId?'familyEdit':'familyAdd';
-      id=state.familyEditingId||state.familyPendingId||('FAM-'+Array.from(crypto.getRandomValues(new Uint8Array(8)),b=>b.toString(16).padStart(2,'0')).join('').toUpperCase());
+      id=state.familyEditingId||('FAM-'+Array.from(crypto.getRandomValues(new Uint8Array(8)),b=>b.toString(16).padStart(2,'0')).join('').toUpperCase());
+      if(familyJobPending(id))throw new Error('이미 저장 중인 일정입니다. 완료된 후 수정해 주세요.');
       if(!deleteMode)record=familyRecordFromForm();
-      retryAdd=action==='familyAdd'&&Boolean(state.familyPendingId);
-      if(action==='familyAdd')state.familyPendingId=id;
     }catch(e){familyFormStatus(e.message,true);return;}
-    familyEditorBusy(true);familyFormStatus('Google Sheets에 저장하고 확인하는 중입니다.');
-    try {
-      // When a previous attempt timed out, do not blindly duplicate the add.
-      const before=retryAdd?await getFamilyItems():null;
-      const already=before&&before.find(x=>x.id===id);
-      if(!already)await sendMutation(action,deleteMode?{id}:{id,event:record});
-      const items=await confirmFamilyMutation(action,id,record);
-      state.familySavedEvents=items;state.familyLoaded=true;
-      if(!deleteMode&&record){const d=parseLocalDate(record.date);state.familyMonth=new Date(d.getFullYear(),d.getMonth(),1);state.familySelectedDate=record.date;}
-      $('#familyEditor').close();
-      familyStatus(deleteMode?'기념일이 삭제되고 공유 시트에 반영됐습니다.':'기념일이 저장되고 공유 시트에 반영됐습니다.');
-      renderFamilyCalendar();
-    }catch(e) {
-      familyFormStatus('저장 확인 실패: '+(e.message||'네트워크 상태를 확인하세요.')+' 중복 추가를 피하려면 새로고침으로 시트를 확인해 주세요.',true);
-      familyStatus('일정 저장 확인이 필요합니다. 새로고침을 눌러 확인하세요.',true);
-    }finally{familyEditorBusy(false);}
+    // Optimistically show the change immediately. The authenticated POST and
+    // verification happen in the background; queue survives app reloads.
+    const job={action,id,record,needsReconcile:false};
+    state.familyQueue.push(job);
+    state.familyRevision++;
+    const durable=persistFamilyJournal();
+    state.familySavedEvents=overlayFamilyPending(state.familyServerEvents);
+    state.familyLoaded=true;
+    if(!deleteMode&&record) {
+      const d=parseLocalDate(record.date);
+      state.familyMonth=new Date(d.getFullYear(),d.getMonth(),1);
+      state.familySelectedDate=record.date;
+    }
+    $('#familyEditor').close();
+    renderFamilyCalendar();
+    familyStatus(durable?'화면에 반영했습니다 · Google Sheets 저장 중…':'화면에 반영했습니다. 기기 저장소에 대기 기록을 저장하지 못했으므로 저장 완료 전 앱을 닫지 마세요.');
+    updateFamilySyncUI();
+    void drainFamilyQueue();
   }
 
   function compareItems(a,b) {
@@ -746,6 +869,7 @@
       updateConnectedView();render();
       if(fromSettings) setTab('list');
       if(state.mutationQueue.length) void drainMutationQueue();
+      if(state.familyQueue.length)void drainFamilyQueue();
       if(fromSettings) {
         notify(isPersistent?'SECRET 저장 및 연결 완료 · 다음 방문부터 자동 연결됩니다.':'연결 완료 · 브라우저 저장이 차단되어 이번 접속에서만 유지됩니다.',isPersistent?'success':'info');
       } else {
@@ -1061,18 +1185,19 @@
   $('#statsPriority').addEventListener('change',renderStatistics);
   $('#statsRefreshBtn').addEventListener('click',()=>$('#refreshBtn').click());
   $('#familyPrevMonthBtn').addEventListener('click',()=>{
-    if(!state.familyMonth) state.familyMonth = new Date(TORI_DUE_DATE.getFullYear(), TORI_DUE_DATE.getMonth(), 1);
+    if(!state.familyMonth) {const d=new Date();state.familyMonth=new Date(d.getFullYear(),d.getMonth(),1);}
     state.familyMonth = new Date(state.familyMonth.getFullYear(), state.familyMonth.getMonth()-1, 1);
     renderFamilyCalendar();
   });
   $('#familyNextMonthBtn').addEventListener('click',()=>{
-    if(!state.familyMonth) state.familyMonth = new Date(TORI_DUE_DATE.getFullYear(), TORI_DUE_DATE.getMonth(), 1);
+    if(!state.familyMonth) {const d=new Date();state.familyMonth=new Date(d.getFullYear(),d.getMonth(),1);}
     state.familyMonth = new Date(state.familyMonth.getFullYear(), state.familyMonth.getMonth()+1, 1);
     renderFamilyCalendar();
   });
   $('#familyAddBtn').addEventListener('click',()=>openFamilyEditor(null,isoDate(new Date())));
   $('#familyAddOnDayBtn').addEventListener('click',()=>openFamilyEditor(null,state.familySelectedDate));
-  $('#familyRefreshBtn').addEventListener('click',()=>{void loadFamilyEvents();});
+  $('#familyRefreshBtn').addEventListener('click',()=>{if(state.familyQueue.length)void drainFamilyQueue();else void loadFamilyEvents();});
+  $('#familyRetryBtn').addEventListener('click',()=>{void drainFamilyQueue();});
   $('#familyCancelBtn').addEventListener('click',()=>{if(!state.familySaving)$('#familyEditor').close();});
   $('#familyEditForm').addEventListener('submit',e=>{e.preventDefault();void saveFamilyRecord(false);});
   $('#familyDeleteBtn').addEventListener('click',()=>{
@@ -1080,7 +1205,7 @@
     if(window.confirm('이 기념일을 공유 달력에서 삭제할까요?'))void saveFamilyRecord(true);
   });
   $('#retrySaveBtn').addEventListener('click',()=>{void drainMutationQueue();});
-  window.addEventListener('online',()=>{if(state.mutationQueue.length)void drainMutationQueue();});
+  window.addEventListener('online',()=>{if(state.mutationQueue.length)void drainMutationQueue();if(state.familyQueue.length)void drainFamilyQueue();});
   $('#settingsForm').addEventListener('submit',e=>{
     e.preventDefault();
     const secret=$('#secretInput').value;
@@ -1098,6 +1223,8 @@
     safeRemove(localStorage,cacheKey);
     safeRemove(sessionStorage,oldSessionKey);
     safeRemove(localStorage,journalKey);
+    safeRemove(localStorage,familyCacheKey);safeRemove(localStorage,familyJournalKey);
+    state.familyQueue=[];state.familySavedEvents=[];state.familyServerEvents=[];state.familyLoaded=false;
     state.secret='';state.items=[];state.connected=false;state.cached=false;state.pendingChecks.clear();
     state.pendingEdits.clear();state.mutationQueue=[];state.mutationFailed=false;updateQueueView();
     $('#secretInput').value='';
@@ -1139,8 +1266,13 @@
     if(Array.isArray(old))for(const [key,value] of old){if(typeof key==='string'&&typeof value==='boolean')state.expanded.set(key,value);}
   }catch(e){}
   restoreJournal();
+  restoreFamilyJournal();
   updateQueueView();
   updateConnectedView();
+  updateFamilySyncUI();
+  const familyNow=new Date();
+  state.familyMonth=new Date(familyNow.getFullYear(),familyNow.getMonth(),1);
+  state.familySelectedDate=isoDate(familyNow);
   renderFamilyCalendar();
   const savedSecret=safeRead(localStorage,storageKey)||safeRead(sessionStorage,oldSessionKey);
   if(savedSecret) {

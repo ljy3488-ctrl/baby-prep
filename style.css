@@ -538,3 +538,8 @@ footer,.group-hint{color:#747980!important;}
 .family-calendar-nav strong{min-width:85px;font-size:12px}
 .family-calendar-nav button{width:29px;height:29px}
 @media(max-width:430px){.family-hero-side{grid-template-columns:repeat(2,minmax(0,1fr))}.family-mini-kpi{padding:10px}.family-mini-kpi strong{font-size:12px;overflow-wrap:anywhere}.family-calendar-title h3{font-size:15px}}
+
+
+/* v21: compact retry action for any pending family-calendar save */
+.family-retry-btn{font:inherit;border:1px solid #e5a48b;background:#fff4ed;color:#b65e43;border-radius:10px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer}
+.family-retry-btn[hidden]{display:none!important}

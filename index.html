@@ -18,9 +18,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=20">
+  <link rel="stylesheet" href="style.css?v=21">
   <script src="config.js" defer></script>
-  <script src="app.js?v=20" defer></script>
+  <script src="app.js?v=21" defer></script>
 </head>
 <body>
 <main class="wrap">
@@ -154,6 +154,7 @@
     </div>
     <div class="family-status-row" role="status" aria-live="polite">
       <span id="familySyncStatus">Google Sheets 연결 시 가족 일정이 표시됩니다.</span>
+      <button type="button" id="familyRetryBtn" class="family-retry-btn" hidden>↻ 저장 재시도</button>
       <button type="button" id="familyRefreshBtn" aria-label="가족달력 새로고침">↻ 새로고침</button>
     </div>
     <section class="family-hero-card" aria-label="토리 디데이">
