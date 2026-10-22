@@ -675,7 +675,9 @@
         } else if(!/^BABY-(?:\d{3}|[A-F0-9]{16})$/.test(String(job.id||'')) ||
             (job.action!=='delete' && (!job.item || typeof job.item!=='object')))continue;
         if(state.pendingEdits.has(job.id))continue;
-        const entry={action:job.action,id:job.id,item:job.item||null};
+        // A restored request may already have reached Google Sheets before the app closed.
+        // Reconcile it once before attempting to send again; new saves skip this extra read.
+        const entry={action:job.action,id:job.id,item:job.item||null,needsReconcile:true};
         state.mutationQueue.push(entry);
         state.pendingEdits.set(entry.id,entry);
       }
@@ -711,7 +713,7 @@
     if(state.pendingChecks.has(id)||state.pendingEdits.has(id)) {
       notify('이 품목은 이전 변경사항 저장 중입니다. 잠시 뒤 다시 시도해 주세요.','info');return false;
     }
-    const job={action,id,item:item?{...item}:null};
+    const job={action,id,item:item?{...item}:null,needsReconcile:false};
     state.mutationQueue.push(job);state.pendingEdits.set(id,job);
     const journalOk=saveJournal();
     optimisticMutation(action,id,item);
@@ -721,8 +723,10 @@
     return true;
   }
   async function confirmMutation(job) {
-    for(const pause of [250,500,900,1400,2200,3200,4500]) {
-      await new Promise(resolve=>setTimeout(resolve,pause));
+    // POST has already completed its request. Verify immediately instead of adding
+    // a compulsory delay; retry only if Sheets has not exposed the new values yet.
+    for(const pause of [0,350,800,1400,2200,3500,4500]) {
+      if(pause)await new Promise(resolve=>setTimeout(resolve,pause));
       const serverItems=await getItems();
       if(matchesItem(serverItems,job))return serverItems;
     }
@@ -735,13 +739,18 @@
       while(state.connected && state.mutationQueue.length){
         const job=state.mutationQueue[0];
         let serverItems;
-        // After an interrupted request, check whether the write succeeded before
-        // replaying it (safe for create/delete as well as edits).
-        try {
-          const current=await getItems();
-          if(matchesItem(current,job))serverItems=current;
-        }catch(ignored){}
+        // Only previously interrupted/uncertain writes need a preflight read.
+        // Doing this for every new edit added a full Apps Script round trip.
+        if(job.needsReconcile){
+          try {
+            const current=await getItems();
+            if(matchesItem(current,job))serverItems=current;
+          }catch(ignored){}
+        }
         if(!serverItems){
+          // In case this POST reaches Sheets but verification is interrupted,
+          // retry after a new reconciliation rather than blindly duplicate it.
+          job.needsReconcile=true;
           let postError=null;
           try {await sendMutation(job.action,job.action==='delete'?{id:job.id}:job.action==='reorder'?job.item:{id:job.id,item:job.item});}
           catch(e){postError=e;}
