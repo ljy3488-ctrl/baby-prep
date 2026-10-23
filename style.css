@@ -540,6 +540,16 @@ footer,.group-hint{color:#747980!important;}
 @media(max-width:430px){.family-hero-side{grid-template-columns:repeat(2,minmax(0,1fr))}.family-mini-kpi{padding:10px}.family-mini-kpi strong{font-size:12px;overflow-wrap:anywhere}.family-calendar-title h3{font-size:15px}}
 
 
-/* v21: compact retry action for any pending family-calendar save */
-.family-retry-btn{font:inherit;border:1px solid #e5a48b;background:#fff4ed;color:#b65e43;border-radius:10px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer}
-.family-retry-btn[hidden]{display:none!important}
+/* v23: Korean lunar anniversary controls (keeps v21/v22 layout unchanged). */
+#familyEditor .family-lunar-fields{border:1px solid #f0e3db;border-radius:14px;background:#fffcf9;padding:12px 12px 14px;margin-top:13px}
+#familyEditor .family-lunar-fields[hidden]{display:none!important}
+.family-lunar-caption{font-size:11px;line-height:1.55;color:#806f68;margin:0 0 8px}
+#familyEditor .family-lunar-grid{display:grid;grid-template-columns:1.25fr 1fr 1fr;gap:7px}
+#familyEditor .family-lunar-grid label{font-size:12px;min-width:0;margin-top:5px}
+#familyEditor .family-lunar-grid input,#familyEditor .family-lunar-grid select{min-width:0;width:100%;padding:10px 7px}
+#familyEditor .family-lunar-leap-label{display:flex;gap:9px;align-items:center;margin-top:12px;font-size:13px;color:#514039}
+#familyEditor .family-lunar-leap-label input{width:18px;height:18px;flex:none}
+.family-lunar-actions{margin-top:11px}
+.family-lunar-actions button{width:100%;border:1px solid #f0d9cb;color:#af654e;background:#fff3ed;border-radius:11px;padding:10px;font:inherit;font-size:12px;font-weight:800}
+.family-lunar-preview{margin:12px 0 8px;padding:10px;border-radius:11px;background:#f9ede6;color:#774d3e;font-size:12px;line-height:1.6;word-break:keep-all}
+@media(max-width:380px){#familyEditor .family-lunar-grid{gap:4px}#familyEditor .family-lunar-grid input,#familyEditor .family-lunar-grid select{font-size:12px}}

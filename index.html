@@ -18,9 +18,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=21">
+  <link rel="stylesheet" href="style.css?v=23">
   <script src="config.js" defer></script>
-  <script src="app.js?v=22" defer></script>
+  <script src="app.js?v=23" defer></script>
 </head>
 <body>
 <main class="wrap">
@@ -272,7 +272,24 @@
     <div class="dialog-head"><h2 id="familyEditorTitle">기념일 추가</h2><button id="familyCancelBtn" class="close" type="button" aria-label="닫기">✕</button></div>
     <p class="family-editor-tip">우리 가족의 특별한 날을 공유 달력에 등록해요.</p>
     <label>기념일 이름 <input id="familyEditTitle" maxlength="80" required placeholder="예: 결혼기념일"></label>
-    <label>날짜 <input id="familyEditDate" type="date" required min="1900-01-01" max="2099-12-31"></label>
+    <label>날짜 구분
+      <select id="familyCalendarType"><option value="양력">양력</option><option value="음력">음력</option></select>
+    </label>
+    <label><span id="familySolarDateLabel">양력 날짜</span> <input id="familyEditDate" type="date" required min="1900-01-01" max="2099-12-31"></label>
+    <section id="familyLunarFields" class="family-lunar-fields" hidden aria-label="음력 날짜 설정">
+      <p class="family-lunar-caption">양력 날짜를 선택하면 음력으로 자동 변환됩니다. 음력 날짜를 알고 있다면 아래 값을 직접 바꿀 수도 있어요.</p>
+      <div class="family-lunar-grid">
+        <label>음력 연도 <input id="familyLunarYear" type="number" min="1900" max="2099" step="1" inputmode="numeric"></label>
+        <label>음력 월 <select id="familyLunarMonth"></select></label>
+        <label>음력 일 <select id="familyLunarDay"></select></label>
+      </div>
+      <label class="family-lunar-leap-label"><input id="familyLunarLeap" type="checkbox"> <span>윤달 (윤월에 태어난 날)</span></label>
+      <div class="family-lunar-actions">
+        <button id="familyLunarConvertBtn" type="button">음력 → 양력 날짜 확인</button>
+      </div>
+      <p id="familyLunarPreview" class="family-lunar-preview" role="status" aria-live="polite"></p>
+      <p class="family-lunar-caption">윤달 생일은 해당 음력 해에 같은 윤달이 없으면 평달 날짜에 표시합니다. 음력 30일이 없는 해에는 그 달의 마지막 날에 표시합니다.</p>
+    </section>
     <div class="family-edit-grid">
       <label>종류 <select id="familyEditCategory" required><option>가족 기념일</option><option>아기 일정</option><option>병원/검진</option><option>기타</option></select></label>
       <label>반복 <select id="familyEditRepeat" required><option>한 번</option><option>매년</option><option>매월</option></select></label>

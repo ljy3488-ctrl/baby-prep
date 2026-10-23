@@ -302,6 +302,67 @@
       {id:'auto-1y',title:'토리 첫돌',date:new Date(TORI_DUE_DATE.getFullYear()+1,TORI_DUE_DATE.getMonth(),TORI_DUE_DATE.getDate()),kind:'sub',note:'예정일 기준 자동 계산'}
     ];
   }
+  // Korean lunar dates: ICU's Korean Dangi calendar, NOT the Chinese calendar.
+  // Use noon Seoul time to avoid timezone/day-boundary surprises.
+  const lunarFormat = new Intl.DateTimeFormat('en-US-u-ca-dangi',{
+    year:'numeric', month:'numeric', day:'numeric', timeZone:'Asia/Seoul'
+  });
+  const lunarSupported = lunarFormat.resolvedOptions().calendar==='dangi';
+  const lunarYearIndex=new Map();
+  function lunarFromSolarDate(date) {
+    if(!lunarSupported)throw new Error('이 기기는 한국 음력 변환을 지원하지 않습니다. 최신 Chrome 또는 Safari로 이용해 주세요.');
+    const noonSeoul=new Date(Date.UTC(date.getFullYear(),date.getMonth(),date.getDate(),3));
+    const parts=Object.fromEntries(lunarFormat.formatToParts(noonSeoul).map(p=>[p.type,p.value]));
+    const monthText=String(parts.month||'');
+    const match=monthText.match(/^(\d{1,2})(bis)?$/i);
+    if(!match || !parts.relatedYear)throw new Error('한국 음력 날짜 변환에 실패했습니다.');
+    return {year:Number(parts.relatedYear),month:Number(match[1]),day:Number(parts.day),leap:!!match[2]};
+  }
+  function lunarYearDays(gregorianYear) {
+    if(lunarYearIndex.has(gregorianYear))return lunarYearIndex.get(gregorianYear);
+    const days=[];
+    const start=new Date(gregorianYear,0,1);
+    for(let date=start; date.getFullYear()===gregorianYear; date=addDays(date,1)) {
+      days.push({date, ...lunarFromSolarDate(date)});
+    }
+    lunarYearIndex.set(gregorianYear,days);
+    // Bound memory for long-lived app sessions.
+    if(lunarYearIndex.size>12)lunarYearIndex.delete(lunarYearIndex.keys().next().value);
+    return days;
+  }
+  function lunarMonthDays(lunarYear,month,leap) {
+    return [...lunarYearDays(lunarYear),...lunarYearDays(lunarYear+1)]
+      .filter(x=>x.year===lunarYear && x.month===month && x.leap===leap);
+  }
+  function resolveExactLunarDate(year,month,day,leap) {
+    if(!Number.isInteger(year)||year<1900||year>2099 || !Number.isInteger(month)||month<1||month>12 ||
+       !Number.isInteger(day)||day<1||day>30)throw new Error('음력 연·월·일을 확인해 주세요.');
+    const found=lunarMonthDays(year,month,leap).find(x=>x.day===day);
+    if(!found)throw new Error(leap?'해당 연도에 선택한 윤달 날짜가 없습니다.':'선택한 음력 날짜가 존재하지 않습니다.');
+    return found.date;
+  }
+  function lunarAnnualDate(year,row) {
+    const month=Number(row.lunarMonth),day=Number(row.lunarDay);
+    if(!Number.isInteger(month)||month<1||month>12 || !Number.isInteger(day)||day<1||day>30)return null;
+    let monthly=lunarMonthDays(year,month,row.lunarLeap===true);
+    if(!monthly.length && row.lunarLeap===true) monthly=lunarMonthDays(year,month,false);
+    if(!monthly.length)return null;
+    // Traditional convenience: lunar 30th falls on the final day in a short lunar month.
+    return (monthly.find(x=>x.day===Math.min(day,monthly[monthly.length-1].day))||monthly[monthly.length-1]).date;
+  }
+  function familyDateKind(row) {return row.calendar==='음력'?'음력':'양력';}
+  function familyLunarInfo(row) {
+    return familyDateKind(row)==='음력'
+      ? `음력 ${row.lunarLeap?'윤':''}${row.lunarMonth}월 ${row.lunarDay}일`
+      : '양력';
+  }
+  function normalizeFamilyEvent(row) {
+    const calendar=row.calendar==='음력'?'음력':'양력';
+    return {...row,calendar,lunarMonth:calendar==='음력'?Number(row.lunarMonth||0):0,
+      lunarDay:calendar==='음력'?Number(row.lunarDay||0):0,
+      lunarLeap:calendar==='음력'&&(row.lunarLeap===true||String(row.lunarLeap).toUpperCase()==='TRUE')};
+  }
+
   function occurrenceForMonth(row,year,month) {
     const start=parseLocalDate(row.date);
     if(!start)return null;
@@ -312,15 +373,28 @@
   }
   function occurrenceEvents(from,to) {
     const result=autoFamilyEvents().filter(e=>e.date>=from&&e.date<=to);
-    for(const row of state.familySavedEvents) {
-      if(!parseLocalDate(row.date))continue;
-      let y=from.getFullYear(),m=from.getMonth();
-      while(y<to.getFullYear()||(y===to.getFullYear()&&m<=to.getMonth())) {
-        const when=occurrenceForMonth(row,y,m);
-        if(when&&when>=from&&when<=to) {
-          result.push({id:row.id,seriesId:row.id,title:row.title,date:when,kind:'custom',category:row.category,repeat:row.repeat,note:row.note});
+    for(const source of state.familySavedEvents) {
+      const row=normalizeFamilyEvent(source);
+      const anchor=parseLocalDate(row.date);
+      if(!anchor)continue;
+      if(row.calendar==='음력'&&row.repeat==='매년') {
+        if(!lunarSupported)continue;
+        for(let lunarYear=from.getFullYear()-1;lunarYear<=to.getFullYear()+1;lunarYear++) {
+          const when=lunarAnnualDate(lunarYear,row);
+          if(when&&when>=anchor&&when>=from&&when<=to) {
+            result.push({id:row.id,seriesId:row.id,title:row.title,date:when,kind:'custom',category:row.category,repeat:row.repeat,note:row.note,calendar:'음력',lunarMonth:row.lunarMonth,lunarDay:row.lunarDay,lunarLeap:row.lunarLeap});
+          }
         }
-        m++;if(m>11){m=0;y++;}
+      } else {
+        // One-off lunar events keep their original, exact converted solar date.
+        let y=from.getFullYear(),m=from.getMonth();
+        while(y<to.getFullYear()||(y===to.getFullYear()&&m<=to.getMonth())) {
+          const when=occurrenceForMonth(row,y,m);
+          if(when&&when>=from&&when<=to) {
+            result.push({id:row.id,seriesId:row.id,title:row.title,date:when,kind:'custom',category:row.category,repeat:row.repeat,note:row.note,calendar:row.calendar,lunarMonth:row.lunarMonth,lunarDay:row.lunarDay,lunarLeap:row.lunarLeap});
+          }
+          m++;if(m>11){m=0;y++;}
+        }
       }
     }
     return result.sort((a,b)=>a.date-b.date||(a.kind==='main'?-1:0));
@@ -336,7 +410,7 @@
     const response=await listFromSheets('familyList');
     if(!response||!response.ok||!Array.isArray(response.events))throw new Error((response&&response.error)||'기념일을 읽을 수 없습니다.');
     return response.events.filter(r=>r&&/^FAM-[A-F0-9]{16}$/.test(String(r.id||''))&&parseLocalDate(String(r.date||''))&&familyCategories.includes(r.category)&&familyRepeats.includes(r.repeat))
-      .map(r=>({id:String(r.id),title:String(r.title),date:String(r.date),category:r.category,repeat:r.repeat,note:String(r.note||'')}));
+      .map(r=>normalizeFamilyEvent({id:String(r.id),title:String(r.title),date:String(r.date),category:r.category,repeat:r.repeat,note:String(r.note||''),calendar:r.calendar,lunarMonth:r.lunarMonth,lunarDay:r.lunarDay,lunarLeap:r.lunarLeap}));
   }
   function overlayFamilyPending(serverEvents) {
     const rows=serverEvents.map(r=>({...r}));
@@ -387,7 +461,7 @@
     try {
       const cache=JSON.parse(safeRead(localStorage,familyCacheKey)||'null');
       if(cache&&cache.api===API&&Array.isArray(cache.events)){
-        state.familyServerEvents=cache.events.filter(r=>r&&typeof r.id==='string'&&parseLocalDate(String(r.date||'')));
+        state.familyServerEvents=cache.events.filter(r=>r&&typeof r.id==='string'&&parseLocalDate(String(r.date||''))).map(normalizeFamilyEvent);
         state.familyLoaded=true;
         // Older v21 caches did not contain savedAt; still show their events immediately.
         state.familyCacheAt=Number.isFinite(cache.savedAt)?cache.savedAt:0;
@@ -397,7 +471,7 @@
       const journal=JSON.parse(safeRead(localStorage,familyJournalKey)||'null');
       if(journal&&journal.api===API&&Array.isArray(journal.jobs)) {
         state.familyQueue=journal.jobs.filter(job=>job&&['familyAdd','familyEdit','familyDelete'].includes(job.action)&&/^FAM-[A-F0-9]{16}$/.test(String(job.id||''))&&
-          (job.action==='familyDelete'||(job.record&&parseLocalDate(job.record.date)&&familyCategories.includes(job.record.category)&&familyRepeats.includes(job.record.repeat)))).map(job=>({...job,needsReconcile:true}));
+          (job.action==='familyDelete'||(job.record&&parseLocalDate(job.record.date)&&familyCategories.includes(job.record.category)&&familyRepeats.includes(job.record.repeat)))).map(job=>({...job,record:job.record?normalizeFamilyEvent(job.record):null,needsReconcile:true}));
         persistFamilyJournal();
       }
     }catch(e){}
@@ -461,7 +535,7 @@
       const meta=document.createElement('div');meta.className='family-upcoming-meta';
       const tag=document.createElement('span');tag.className='family-event-tag';tag.textContent=event.kind==='custom'?event.category:'자동 기념일';
       const name=document.createElement('strong');name.textContent=event.title;
-      const date=document.createElement('span');date.textContent=dateLabel(event.date,true);
+      const date=document.createElement('span');date.textContent=dateLabel(event.date,true)+(event.kind==='custom'&&event.calendar==='음력'?` · 음력 ${event.lunarLeap?'윤':''}${event.lunarMonth}/${event.lunarDay}`:'');
       meta.append(tag,name,date);
       const right=document.createElement('div');right.className='family-upcoming-dday';
       const d=document.createElement('b');d.textContent=days===0?'D-Day':`D-${days}`;
@@ -487,7 +561,7 @@
     const list=$('#familySelectedList');list.replaceChildren();
     const same=dayMatches(isoDate(date),events);
     if(!same.length){const empty=document.createElement('p');empty.className='family-empty';empty.textContent='이 날짜에는 등록된 일정이 없습니다.';list.append(empty);}
-    else for(const event of same) list.append(familyEventDisplay(event.title,event.kind==='custom'?`${event.category} · ${event.repeat}${event.note?' · '+event.note:''}`:'토리 예정일 기준 자동 계산',event.kind!=='custom',event.seriesId||''));
+    else for(const event of same) list.append(familyEventDisplay(event.title,event.kind==='custom'?`${event.category} · ${event.repeat} · ${familyLunarInfo(event)}${event.note?' · '+event.note:''}`:'토리 예정일 기준 자동 계산',event.kind!=='custom',event.seriesId||''));
   }
   function renderFamilyManaged() {
     const target=$('#familyManagedEvents');target.replaceChildren();
@@ -498,7 +572,7 @@
       p.textContent=state.familyLastSyncAt===0 ? '등록한 가족 일정을 확인 중입니다. 최신 정보가 오면 자동 표시됩니다.' : '아직 등록한 일정이 없어요. 기념일을 추가해 보세요.';
       target.append(p);return;
     }
-    for(const r of rows)target.append(familyEventDisplay(r.title,`${r.date} · ${r.category} · ${r.repeat}`,false,r.id));
+    for(const r of rows)target.append(familyEventDisplay(r.title,`${r.date} · ${familyLunarInfo(r)} · ${r.category} · ${r.repeat}`,false,r.id));
   }
   function selectFamilyDay(date) {
     state.familySelectedDate=isoDate(date);renderFamilyCalendar();
@@ -548,6 +622,50 @@
     for(const el of $('#familyEditForm').querySelectorAll('input,select,textarea,button'))el.disabled=on;
     $('#familySaveBtn').textContent=on?'Google Sheets 저장 확인 중…':'저장하기';
   }
+  function fillLunarOptions() {
+    const months=$('#familyLunarMonth'),days=$('#familyLunarDay');
+    if(months.options.length)return;
+    for(let m=1;m<=12;m++)months.add(new Option(`${m}월`,String(m)));
+    for(let d=1;d<=30;d++)days.add(new Option(`${d}일`,String(d)));
+  }
+  function showLunarControls() {
+    const active=$('#familyCalendarType').value==='음력';
+    $('#familyLunarFields').hidden=!active;
+    $('#familySolarDateLabel').textContent=active?'기준 양력 날짜 (선택 시 음력 자동 변환)':'양력 날짜';
+    if(active){
+      if($('#familyEditRepeat').value==='매월')$('#familyEditRepeat').value='매년';
+      [...$('#familyEditRepeat').options].find(o=>o.value==='매월').disabled=true;
+      syncLunarFromSolar();
+    }else {
+      [...$('#familyEditRepeat').options].find(o=>o.value==='매월').disabled=false;
+    }
+  }
+  function syncLunarFromSolar() {
+    if($('#familyCalendarType').value!=='음력')return;
+    const d=parseLocalDate($('#familyEditDate').value);
+    if(!d){$('#familyLunarPreview').textContent='기준 양력 날짜를 선택해 주세요.';return;}
+    try {
+      const l=lunarFromSolarDate(d);
+      $('#familyLunarYear').value=String(l.year);
+      $('#familyLunarMonth').value=String(l.month);
+      $('#familyLunarDay').value=String(l.day);
+      $('#familyLunarLeap').checked=l.leap;
+      $('#familyLunarPreview').textContent=`양력 ${isoDate(d)} = 음력 ${l.year}년 ${l.leap?'윤':''}${l.month}월 ${l.day}일`;
+    }catch(e){$('#familyLunarPreview').textContent=e.message;}
+  }
+  function getManualLunarDate() {
+    const year=Number($('#familyLunarYear').value),month=Number($('#familyLunarMonth').value),
+      day=Number($('#familyLunarDay').value),leap=$('#familyLunarLeap').checked;
+    const solar=resolveExactLunarDate(year,month,day,leap);
+    return {solar,month,day,leap,year};
+  }
+  function previewManualLunar() {
+    if($('#familyCalendarType').value!=='음력')return;
+    try {
+      const l=getManualLunarDate();
+      $('#familyLunarPreview').textContent=`음력 ${l.year}년 ${l.leap?'윤':''}${l.month}월 ${l.day}일 → 양력 ${isoDate(l.solar)} · 아래 버튼으로 양력 날짜에 반영하세요.`;
+    }catch(e) {$('#familyLunarPreview').textContent=e.message;}
+  }
   function openFamilyEditor(id=null,dateText=null) {
     if(!state.connected){familyStatus('설정에서 Google Sheets를 연결하면 기념일을 추가할 수 있습니다.',true);return;}
     const source=id?state.familySavedEvents.find(e=>e.id===id):null;
@@ -560,19 +678,39 @@
     $('#familyEditCategory').value=source?.category||'가족 기념일';
     $('#familyEditRepeat').value=source?.repeat||'한 번';
     $('#familyEditNote').value=source?.note||'';
+    fillLunarOptions();
+    $('#familyCalendarType').value=source?.calendar==='음력'?'음력':'양력';
+    showLunarControls();
+    if(source?.calendar==='음력'){
+      $('#familyLunarMonth').value=String(source.lunarMonth);
+      $('#familyLunarDay').value=String(source.lunarDay);
+      $('#familyLunarLeap').checked=Boolean(source.lunarLeap);
+      previewManualLunar();
+    }
     $('#familyDeleteBtn').hidden=!source;
     familyFormStatus('');
     $('#familyEditor').showModal();
   }
   function familyRecordFromForm() {
-    const title=$('#familyEditTitle').value.trim(),date=$('#familyEditDate').value;
+    const title=$('#familyEditTitle').value.trim();
+    let date=$('#familyEditDate').value;
     if(!title||title.length>80)throw new Error('기념일 이름은 1~80자로 입력하세요.');
-    if(!parseLocalDate(date)||!/^\d{4}-\d{2}-\d{2}$/.test(date))throw new Error('올바른 날짜를 입력하세요.');
+    if(!parseLocalDate(date)||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date))throw new Error('올바른 날짜를 입력하세요.');
     const category=$('#familyEditCategory').value,repeat=$('#familyEditRepeat').value;
     if(!familyCategories.includes(category)||!familyRepeats.includes(repeat))throw new Error('종류 또는 반복 설정이 올바르지 않습니다.');
     const note=$('#familyEditNote').value;
     if(note.length>300)throw new Error('메모는 300자 이하로 입력해 주세요.');
-    return {title,date,category,repeat,note};
+    const calendar=$('#familyCalendarType').value;
+    if(calendar!=='음력'&&calendar!=='양력')throw new Error('날짜 구분이 올바르지 않습니다.');
+    let lunarMonth=0,lunarDay=0,lunarLeap=false;
+    if(calendar==='음력') {
+      if(repeat==='매월')throw new Error('음력 기념일은 한 번 또는 매년 반복으로 등록해 주세요.');
+      const lunar=getManualLunarDate();
+      if(lunar.solar.getFullYear()<1900||lunar.solar.getFullYear()>2099)throw new Error('지원하는 양력 날짜는 1900~2099년입니다.');
+      date=isoDate(lunar.solar);
+      lunarMonth=lunar.month;lunarDay=lunar.day;lunarLeap=lunar.leap;
+    }
+    return {title,date,category,repeat,note,calendar,lunarMonth,lunarDay,lunarLeap};
   }
   async function confirmFamilyMutation(action,id,record) {
     for(const pause of [0,250,550,1000,1700,2800]) {
@@ -580,7 +718,7 @@
       let items;
       try{items=await getFamilyItems();}catch(e){if(pause===2800)throw e;continue;}
       const found=items.find(x=>x.id===id);
-      const same=found&&record&&['title','date','category','repeat','note'].every(k=>found[k]===record[k]);
+      const same=found&&record&&['title','date','category','repeat','note','calendar','lunarMonth','lunarDay','lunarLeap'].every(k=>found[k]===record[k]);
       if((action==='familyDelete'&&!found)||(action!=='familyDelete'&&same))return items;
     }
     throw new Error('서버에서 변경 내용을 아직 확인하지 못했습니다. 새로고침으로 확인해 주세요.');
@@ -588,7 +726,7 @@
   function familyMutationMatches(items,job) {
     const found=items.find(row=>row.id===job.id);
     if(job.action==='familyDelete')return !found;
-    return Boolean(found&&job.record&&['title','date','category','repeat','note'].every(key=>found[key]===job.record[key]));
+    return Boolean(found&&job.record&&['title','date','category','repeat','note','calendar','lunarMonth','lunarDay','lunarLeap'].every(key=>found[key]===job.record[key]));
   }
   async function drainFamilyQueue() {
     if(!state.connected||state.familySyncBusy||!state.familyQueue.length)return;
@@ -1255,6 +1393,18 @@
     if(!state.familyMonth) {const d=new Date();state.familyMonth=new Date(d.getFullYear(),d.getMonth(),1);}
     state.familyMonth = new Date(state.familyMonth.getFullYear(), state.familyMonth.getMonth()+1, 1);
     renderFamilyCalendar();
+  });
+  $('#familyCalendarType').addEventListener('change',showLunarControls);
+  $('#familyEditDate').addEventListener('change',syncLunarFromSolar);
+  for(const id of ['familyLunarYear','familyLunarMonth','familyLunarDay','familyLunarLeap']){
+    $('#'+id).addEventListener('change',previewManualLunar);
+  }
+  $('#familyLunarConvertBtn').addEventListener('click',()=>{
+    try {
+      const result=getManualLunarDate();
+      $('#familyEditDate').value=isoDate(result.solar);
+      syncLunarFromSolar();
+    }catch(e){familyFormStatus(e.message,true);}
   });
   $('#familyAddBtn').addEventListener('click',()=>openFamilyEditor(null,isoDate(new Date())));
   $('#familyAddOnDayBtn').addEventListener('click',()=>openFamilyEditor(null,state.familySelectedDate));
