@@ -268,6 +268,38 @@
   // Family calendar: editable events are stored separately from 준비물.
   const familyCategories=['가족 기념일','아기 일정','병원/검진','기타'];
   const familyRepeats=['한 번','매년','매월'];
+
+  // Official Korean holidays (2026/2027): KASI / KASA annual calendar notices.
+  // Later special holidays may be designated by the government; do not guess those.
+  // Intentionally omit other years' holiday guesses: show Sundays in red, with a notice.
+  const KOREAN_HOLIDAYS = Object.freeze({
+    2026: Object.freeze({
+      '01-01':'신정','02-16':'설날 연휴','02-17':'설날','02-18':'설날 연휴',
+      '03-01':'삼일절','03-02':'삼일절 대체공휴일',
+      '05-01':'노동절','05-05':'어린이날','05-24':'부처님오신날','05-25':'부처님오신날 대체공휴일',
+      '06-03':'전국동시지방선거','06-06':'현충일','07-17':'제헌절',
+      '08-15':'광복절','08-17':'광복절 대체공휴일',
+      '09-24':'추석 연휴','09-25':'추석','09-26':'추석 연휴',
+      '10-03':'개천절','10-05':'개천절 대체공휴일','10-09':'한글날','12-25':'성탄절'
+    }),
+    2027: Object.freeze({
+      '01-01':'신정',
+      '02-06':'설날 연휴','02-07':'설날','02-08':'설날 연휴','02-09':'설날 대체공휴일',
+      '03-01':'삼일절',
+      '05-01':'노동절','05-03':'노동절 대체공휴일','05-05':'어린이날','05-13':'부처님오신날',
+      '06-06':'현충일','07-17':'제헌절','07-19':'제헌절 대체공휴일',
+      '08-15':'광복절','08-16':'광복절 대체공휴일',
+      '09-14':'추석 연휴','09-15':'추석','09-16':'추석 연휴',
+      '10-03':'개천절','10-04':'개천절 대체공휴일','10-09':'한글날','10-11':'한글날 대체공휴일',
+      '12-25':'성탄절','12-27':'성탄절 대체공휴일'
+    })
+  });
+  function koreanHolidayName(date) {
+    const yearData=KOREAN_HOLIDAYS[date.getFullYear()];
+    const key=`${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+    return yearData?yearData[key]||'':'';
+  }
+
   function stripTime(date) {
     return new Date(date.getFullYear(),date.getMonth(),date.getDate());
   }
@@ -524,11 +556,12 @@
     $('#familyDdayText').textContent=untilDue>=0?`D-${untilDue}`:`D+${Math.abs(untilDue)}`;
     const weeks=Math.max(0,40-Math.floor(untilDue/7));
     $('#familyWeeksText').textContent=untilDue>=0?`약 ${weeks}주차`:`${Math.floor(Math.abs(untilDue)/7)+1}주 지남`;
-    const next=events.find(e=>e.date>=today);
-    $('#familyNextEventText').textContent=next?`${next.title} · ${daysBetween(today,next.date)===0?'오늘':'D-'+daysBetween(today,next.date)}`:'예정된 일정 없음';
+    const end=addDays(today,30);
+    const upcomingEvents=events.filter(e=>e.date>=today && e.date<=end);
+    const next=upcomingEvents[0];
+    $('#familyNextEventText').textContent=next?`${next.title} · ${daysBetween(today,next.date)===0?'오늘':'D-'+daysBetween(today,next.date)}`:'30일 내 일정 없음';
     const upcoming=$('#familyUpcomingList');upcoming.replaceChildren();
-    const upcomingEvents=events.filter(e=>e.date>=today).slice(0,8);
-    if(!upcomingEvents.length){const empty=document.createElement('p');empty.className='family-empty';empty.textContent='앞으로 다가오는 일정이 없습니다.';upcoming.append(empty);}
+    if(!upcomingEvents.length){const empty=document.createElement('p');empty.className='family-empty';empty.textContent='오늘부터 30일 이내 예정된 기념일이 없어요.';upcoming.append(empty);}
     for(const event of upcomingEvents) {
       const days=daysBetween(today,event.date), card=document.createElement('article');
       card.className='family-upcoming-card'+(event.kind==='main'?' primary':'');
@@ -560,12 +593,20 @@
     $('#familySelectedDateLabel').textContent=dateLabel(date,true);
     const list=$('#familySelectedList');list.replaceChildren();
     const same=dayMatches(isoDate(date),events);
-    if(!same.length){const empty=document.createElement('p');empty.className='family-empty';empty.textContent='이 날짜에는 등록된 일정이 없습니다.';list.append(empty);}
+    const holiday=koreanHolidayName(date);
+    if(holiday){
+      const card=document.createElement('div');card.className='family-holiday-detail';
+      const tag=document.createElement('span');tag.textContent='공휴일';
+      const name=document.createElement('strong');name.textContent=holiday;
+      card.append(tag,name);list.append(card);
+    }
+    if(!same.length&&!holiday){const empty=document.createElement('p');empty.className='family-empty';empty.textContent='이 날짜에는 등록된 일정이 없습니다.';list.append(empty);}
     else for(const event of same) list.append(familyEventDisplay(event.title,event.kind==='custom'?`${event.category} · ${event.repeat} · ${familyLunarInfo(event)}${event.note?' · '+event.note:''}`:'토리 예정일 기준 자동 계산',event.kind!=='custom',event.seriesId||''));
   }
   function renderFamilyManaged() {
     const target=$('#familyManagedEvents');target.replaceChildren();
     const rows=[...state.familySavedEvents].sort((a,b)=>a.date.localeCompare(b.date));
+    $('#familyManagedCount').textContent=state.familyLoaded?`${rows.length}개`:'불러오는 중';
     if(!state.familyLoaded){const p=document.createElement('p');p.className='family-empty';p.textContent='가족 일정을 불러오는 중입니다. 잠시 후 다시 확인해 주세요.';target.append(p);return;}
     if(!rows.length){
       const p=document.createElement('p');p.className='family-empty';
@@ -584,31 +625,46 @@
     const gridEnd=addDays(gridStart,41);
     const displayed=occurrenceEvents(gridStart,gridEnd);
     const today=stripTime(new Date());
-    const upcoming=occurrenceEvents(today,addDays(today,400));
+    // Only compute the next 30 days for the upcoming list (was 400 days).
+    const upcoming=occurrenceEvents(today,addDays(today,30));
     renderFamilySummary(upcoming);renderFamilyManaged();
     renderFamilySelected(displayed);
     $('#familyMonthLabel').textContent=`${month.getFullYear()}년 ${month.getMonth()+1}월`;
+    $('#familyHolidayNotice').textContent=KOREAN_HOLIDAYS[month.getFullYear()]
+      ? '일요일·한국 공휴일은 붉은색, 토요일은 파란색으로 표시됩니다. 공휴일은 2026~2027년 발표 기준이며 추후 임시공휴일은 제외됩니다.'
+      : '현재 공휴일 정보는 2026~2027년만 제공합니다. 이 연도 외에는 일요일만 붉게 표시됩니다.';
     const grid=$('#familyCalendarGrid');grid.replaceChildren();
     for(let i=0;i<42;i++) {
       const date=addDays(gridStart,i),dateString=isoDate(date);
       const matches=dayMatches(dateString,displayed);
+      const holiday=koreanHolidayName(date);
       const cell=document.createElement('button');cell.type='button';cell.className='family-day';
+      if(date.getDay()===0)cell.classList.add('sunday');
+      if(date.getDay()===6)cell.classList.add('saturday');
+      if(holiday)cell.classList.add('holiday');
       if(date.getMonth()!==month.getMonth())cell.classList.add('muted');
       if(dateString===isoDate(today))cell.classList.add('today');
       if(dateString===isoDate(TORI_DUE_DATE))cell.classList.add('due');
       if(dateString===state.familySelectedDate)cell.classList.add('selected');
       if(matches.length)cell.classList.add('has-event');
-      cell.setAttribute('aria-label',`${dateLabel(date,true)}${matches.length?': '+matches.map(e=>e.title).join(', '):''}`);
+      cell.setAttribute('aria-label',`${dateLabel(date,true)}${holiday?': '+holiday:''}${matches.length?': '+matches.map(e=>e.title).join(', '):''}`);
       const num=document.createElement('span');num.className='family-day-num';num.textContent=String(date.getDate());
       cell.append(num);
+      if(holiday){
+        const label=document.createElement('small');label.className='family-day-holiday';label.textContent=holiday;
+        cell.append(label);
+      }
       if(matches.length) {
         const dots=document.createElement('div');dots.className='family-day-dots';
         for(const event of matches.slice(0,3)) {
           const dot=document.createElement('span');dot.className='family-day-dot'+(event.kind==='main'?' primary':event.kind==='custom'?' custom':'');
           dots.append(dot);
         }
-        const label=document.createElement('small');label.className='family-day-label';label.textContent=matches[0].title.replace('토리 ','');
-        cell.append(dots,label);
+        cell.append(dots);
+        if(!holiday){
+          const label=document.createElement('small');label.className='family-day-label';label.textContent=matches[0].title.replace('토리 ','');
+          cell.append(label);
+        }
       }
       cell.addEventListener('click',()=>selectFamilyDay(date));
       grid.append(cell);

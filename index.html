@@ -18,9 +18,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=23">
+  <link rel="stylesheet" href="style.css?v=24">
   <script src="config.js" defer></script>
-  <script src="app.js?v=23" defer></script>
+  <script src="app.js?v=24" defer></script>
 </head>
 <body>
 <main class="wrap">
@@ -182,7 +182,7 @@
         <span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span>
       </div>
       <div id="familyCalendarGrid" class="family-calendar-grid"></div>
-      <p class="family-calendar-hint">날짜를 누르면 해당 날짜의 일정을 확인하거나 추가할 수 있어요.</p>
+      <p id="familyHolidayNotice" class="family-calendar-hint">일요일과 공휴일은 붉게 표시됩니다. 날짜를 누르면 일정과 공휴일 이름을 확인할 수 있어요.</p>
     </section>
 
     <section class="family-panel" aria-labelledby="familySelectedHeading">
@@ -195,13 +195,18 @@
     </section>
 
     <section class="family-panel" aria-labelledby="familyUpcomingHeading">
-      <div class="stats-panel-title"><h3 id="familyUpcomingHeading">다가오는 기념일</h3><small>토리 기준 자동 계산</small></div>
+      <div class="stats-panel-title"><h3 id="familyUpcomingHeading">다가오는 기념일</h3><small>오늘부터 30일 이내</small></div>
       <div id="familyUpcomingList" class="family-upcoming-list"></div>
     </section>
 
-    <section class="family-panel" aria-labelledby="familyMyEventsHeading">
-      <div class="family-selected-heading"><h3 id="familyMyEventsHeading">직접 등록한 일정</h3><span class="family-inline-hint">등록한 일정의 수정·삭제</span></div>
-      <div id="familyManagedEvents" class="family-events-list"></div>
+    <section class="family-panel family-managed-panel" aria-labelledby="familyMyEventsHeading">
+      <details id="familyManagedDisclosure" class="family-managed-disclosure">
+        <summary class="family-managed-summary">
+          <span class="family-managed-summary-copy"><strong id="familyMyEventsHeading">직접 등록한 일정</strong><small>등록한 기념일을 펼쳐서 수정·삭제</small></span>
+          <span class="family-managed-summary-actions"><span id="familyManagedCount" class="family-managed-count">0개</span><span class="family-managed-chevron" aria-hidden="true">⌄</span></span>
+        </summary>
+        <div id="familyManagedEvents" class="family-events-list family-managed-content"></div>
+      </details>
     </section>
 
     <section class="family-panel" aria-labelledby="familyMilestoneHeading">

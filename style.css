@@ -553,3 +553,34 @@ footer,.group-hint{color:#747980!important;}
 .family-lunar-actions button{width:100%;border:1px solid #f0d9cb;color:#af654e;background:#fff3ed;border-radius:11px;padding:10px;font:inherit;font-size:12px;font-weight:800}
 .family-lunar-preview{margin:12px 0 8px;padding:10px;border-radius:11px;background:#f9ede6;color:#774d3e;font-size:12px;line-height:1.6;word-break:keep-all}
 @media(max-width:380px){#familyEditor .family-lunar-grid{gap:4px}#familyEditor .family-lunar-grid input,#familyEditor .family-lunar-grid select{font-size:12px}}
+
+
+/* v24: calendar official holidays, 30-day upcoming window and collapsible managed events. */
+.family-calendar-grid .family-day.sunday .family-day-num,
+.family-calendar-grid .family-day.holiday .family-day-num{color:#C94643;font-weight:800;}
+.family-calendar-grid .family-day.saturday:not(.holiday) .family-day-num{color:#507CA2;}
+.family-calendar-grid .family-day.holiday{background:#FFF9F8;border-color:#F5DBD7;}
+.family-calendar-grid .family-day.holiday.selected{background:#FFF0ED;}
+.family-calendar-grid .family-day-holiday{color:#C94643;font-size:10px;line-height:1.25;font-weight:750;word-break:keep-all;overflow-wrap:anywhere;max-width:100%;}
+.family-calendar-grid .family-day.due .family-day-num{color:white;}
+.family-weekdays span:first-child{color:#C94643;}
+.family-weekdays span:last-child{color:#507CA2;}
+.family-holiday-detail{display:flex;align-items:center;gap:11px;border:1px solid #F5DEDB;background:#FFF8F7;border-radius:13px;padding:12px;}
+.family-holiday-detail span{border-radius:7px;background:#FDE5E3;color:#B43F3D;font-size:11px;font-weight:800;padding:5px 8px;}
+.family-holiday-detail strong{color:#BA4946;font-size:13px;}
+.family-managed-panel{padding:0;overflow:hidden;}
+.family-managed-disclosure{width:100%;}
+.family-managed-summary{cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;list-style:none;padding:16px;user-select:none;-webkit-user-select:none;}
+.family-managed-summary::-webkit-details-marker{display:none;}
+.family-managed-summary::marker{content:'';}
+.family-managed-summary-copy{display:grid;gap:5px;}
+.family-managed-summary-copy strong{font-family:'Jua','Gowun Dodum',sans-serif;font-size:18px;font-weight:400;color:#423530;}
+.family-managed-summary-copy small{color:#83766E;font-size:11px;}
+.family-managed-summary-actions{display:flex;gap:8px;align-items:center;flex:none;}
+.family-managed-count{font-size:11px;font-weight:800;background:#FFF0E8;color:#A95C48;padding:6px 9px;border-radius:999px;}
+.family-managed-chevron{display:inline-flex;align-items:center;justify-content:center;font-size:19px;color:#8D7E78;transition:transform .15s ease;line-height:1;}
+.family-managed-disclosure[open] .family-managed-chevron{transform:rotate(180deg);}
+.family-managed-summary:focus-visible{outline:2px solid #CA7A65;outline-offset:-3px;}
+.family-managed-content{padding:0 14px 15px;border-top:1px solid #F5EEEA;}
+.family-managed-content .family-event-item:first-child{margin-top:13px;}
+@media(max-width:430px){.family-calendar-grid .family-day-holiday{font-size:8.5px;line-height:1.2}.family-managed-summary{padding:14px;}}
