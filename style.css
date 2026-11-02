@@ -584,3 +584,10 @@ footer,.group-hint{color:#747980!important;}
 .family-managed-content{padding:0 14px 15px;border-top:1px solid #F5EEEA;}
 .family-managed-content .family-event-item:first-child{margin-top:13px;}
 @media(max-width:430px){.family-calendar-grid .family-day-holiday{font-size:8.5px;line-height:1.2}.family-managed-summary{padding:14px;}}
+
+/* BabyPrep v25 — optional shared purchase links, same v24 visual palette */
+.product-link-hint{font-size:11px;line-height:1.5;color:#7f7672;margin:6px 0 0;}
+.product-link-btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;margin-top:8px;padding:7px 11px;min-height:33px;border:1px solid #eddcd4;border-radius:10px;background:#fff8f4;color:#9d5946;font-family:inherit;font-size:12px;font-weight:750;text-decoration:none;max-width:100%;width:max-content;}
+.product-link-btn:hover,.product-link-btn:focus-visible{background:#ffeee7;border-color:#ddab9c;outline-offset:2px;}
+.product-link-btn:active{background:#fbe3d8;}
+@media(max-width:390px){.product-link-btn{font-size:11px;padding:6px 9px;min-height:32px;}}

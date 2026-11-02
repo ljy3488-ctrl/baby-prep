@@ -150,7 +150,8 @@
       priority:String(r['우선순위']||''),purchaseQty:Number(r['구매수량']||0),
       status:String(r['구매상태']==='선물받음'?'구매완료':r['구매상태']||'미구매'),price:Number(r['실제금액']||0),
       product:String(r['구매제품']||''),memo:String(r['메모']||''),updated:String(r['수정일시']||''),order:Number(r['정렬순서']||0),
-      carrot:r['당근마켓']===true||String(r['당근마켓']).toUpperCase()==='TRUE'
+      carrot:r['당근마켓']===true||String(r['당근마켓']).toUpperCase()==='TRUE',
+      productLink:String(r['상품링크']||'')
     }));
   }
   function drawCategories() {
@@ -931,6 +932,15 @@
     const price=document.createElement('div');price.className='item-price';price.textContent=`구매 금액 ${won(i.price)} · 구매 수량 ${i.purchaseQty||0}개`;
     info.append(titleRow,meta,price);
     if(i.product||i.memo){const note=document.createElement('div');note.className='item-note';note.textContent=[i.product,i.memo].filter(Boolean).join(' · ');info.append(note);}
+    const safeLink=normalizeProductLink(i.productLink,false);
+    if(safeLink){
+      const link=document.createElement('a');
+      link.className='product-link-btn';link.href=safeLink;
+      link.target='_blank';link.rel='noopener noreferrer';
+      link.textContent='상품 보기 ↗';
+      link.setAttribute('aria-label',i.name+' 구매 상품 링크 열기');
+      info.append(link);
+    }
     const edit=document.createElement('button');edit.type='button';edit.className='edit';edit.textContent='수정';edit.disabled=!state.connected||pending;edit.addEventListener('click',()=>openEditor(i));
     const grip=document.createElement('button');grip.type='button';grip.className='drag-handle';grip.textContent='⠿';
     grip.setAttribute('aria-label',i.name+' 순서 이동');grip.title='손으로 끌어 순서 바꾸기';
@@ -1261,6 +1271,7 @@
     $('#editPrice').value=Number(i.price||0);
     $('#editCarrot').checked=i.carrot===true;
     $('#editProduct').value=i.product||'';
+    $('#editProductLink').value=i.productLink||'';
     $('#editMemo').value=i.memo||'';
     $('#editorStatus').hidden=true;
     $('#editorStatus').textContent='';
@@ -1282,6 +1293,23 @@
     $('#saveBtn').textContent='새 준비물 저장';
     $('#editor').showModal();
   }
+  function normalizeProductLink(raw,throwOnInvalid=true) {
+    const text=String(raw||'').trim();
+    if(!text)return '';
+    if(text.length>1000){
+      if(throwOnInvalid)throw new Error('상품 링크는 1,000자 이하로 입력해 주세요.');
+      return '';
+    }
+    // Never put javascript:, data:, or an unsafe URL in a clickable anchor.
+    try {
+      const parsed=new URL(text);
+      if(!['http:','https:'].includes(parsed.protocol)||!parsed.hostname||parsed.username||parsed.password||/\s/.test(text))throw new Error('invalid url');
+      return parsed.href;
+    }catch(e){
+      if(throwOnInvalid)throw new Error('상품 링크를 https:// 또는 http://로 시작하는 올바른 주소로 입력해 주세요.');
+      return '';
+    }
+  }
   function formRecord() {
     const purchaseQty=Number($('#editPurchaseQty').value||0);
     const price=Number($('#editPrice').value||0);
@@ -1291,7 +1319,7 @@
     if(!name||name.length>80)throw new Error('품목명을 80자 이내로 입력하세요.');
     return {name,category:$('#editCategory').value,priority:$('#editPriority').value,
       purchaseQty,status:$('#editStatus').value,price,product:$('#editProduct').value,memo:$('#editMemo').value,
-      carrot:$('#editCarrot').checked};
+      carrot:$('#editCarrot').checked,productLink:normalizeProductLink($('#editProductLink').value)};
   }
   function matchesItem(serverItems,job) {
     const actual=serverItems.find(i=>i.id===job.id);
@@ -1304,6 +1332,8 @@
     const keys=['name','category','priority','purchaseQty','status','price','product','memo'];
     // Old queued v16 edits did not contain the new checkbox.
     if(typeof job.item.carrot==='boolean')keys.push('carrot');
+    // Pending requests from v18-v24 did not include a product link.
+    if(typeof job.item.productLink==='string')keys.push('productLink');
     return keys.every(key=>String(actual[key])===String(job.item[key]));
   }
   function freshId() {

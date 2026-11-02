@@ -18,9 +18,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=24">
+  <link rel="stylesheet" href="style.css?v=25">
   <script src="config.js" defer></script>
-  <script src="app.js?v=24" defer></script>
+  <script src="app.js?v=25" defer></script>
 </head>
 <body>
 <main class="wrap">
@@ -264,6 +264,8 @@
       <label>구매 수량 (개)<input id="editPurchaseQty" type="number" min="0" max="9999" step="1" inputmode="numeric" value="0"></label>
     </div>
     <label>구매 제품<input id="editProduct" maxlength="500" placeholder="제품명 또는 구매처"></label>
+    <label>구매 상품 링크 (선택)<input id="editProductLink" type="url" inputmode="url" maxlength="1000" autocomplete="url" placeholder="https://smartstore.naver.com/..."></label>
+    <p class="product-link-hint">네이버쇼핑·쿠팡·당근 등 상품 주소를 넣으면 준비물 목록에 ‘상품 보기’ 버튼이 표시됩니다.</p>
     <label>메모<textarea id="editMemo" maxlength="500" rows="3" placeholder="사이즈, 구매 예정일 등"></textarea></label>
     </fieldset>
     <p id="editorStatus" class="editor-status" role="alert" hidden></p>
