@@ -591,3 +591,14 @@ footer,.group-hint{color:#747980!important;}
 .product-link-btn:hover,.product-link-btn:focus-visible{background:#ffeee7;border-color:#ddab9c;outline-offset:2px;}
 .product-link-btn:active{background:#fbe3d8;}
 @media(max-width:390px){.product-link-btn{font-size:11px;padding:6px 9px;min-height:32px;}}
+
+/* BabyPrep v26 — restore the carrot checkbox layout lost during v25 CSS merge.
+   Keep this rule scoped to the item editor; do not change other form inputs. */
+.item-name-row{display:flex;align-items:center;flex-wrap:wrap;column-gap:7px;row-gap:4px;min-width:0;}
+.item-name-row .item-title{flex:0 1 auto;min-width:0;overflow-wrap:anywhere;}
+.carrot-badge{display:inline-flex;align-items:center;white-space:nowrap;max-width:100%;padding:3px 7px;line-height:1.3;border-radius:999px;color:#965523;background:#fff4e6;border:1px solid #f0d9ba;font-family:'Gowun Dodum','Apple SD Gothic Neo',sans-serif;font-weight:800;font-size:11px;letter-spacing:-.01em;}
+#editor .item-fields label.carrot-option{display:flex;flex-direction:row;align-items:center;gap:11px;border:1px solid #f0ded0;border-radius:13px;background:#fff9f3;padding:13px 12px;margin:15px 0 2px;cursor:pointer;width:100%;}
+#editor .item-fields label.carrot-option input[type="checkbox"]{flex:0 0 21px;width:21px;height:21px;min-width:21px;margin:0;accent-color:#d68d59;cursor:pointer;padding:0;}
+#editor .carrot-option-copy{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1;}
+#editor .carrot-option-copy strong{color:#3b3531;font-size:13px;font-weight:800;line-height:1.4;}
+#editor .carrot-option-copy small{font-size:11px;color:#68635f;line-height:1.5;font-weight:500;word-break:keep-all;}
