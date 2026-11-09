@@ -783,3 +783,9 @@ footer,.group-hint{color:#747980!important;}
 .growth-photo-caption{font-size:12px;color:#777177;line-height:1.6}
 #growthPhotoViewer .outline-danger{width:100%}
 @media(max-width:360px){.growth-photo-grid{gap:5px}.growth-photo-thumb{min-height:70px}.growth-photo-add-btn{font-size:10px!important}}
+
+/* v31.1: persistent, tappable controls and clear offline/sync diagnostics */
+.growth-entry-edit-btn,.growth-photo-add-btn{min-width:45px;min-height:40px;touch-action:manipulation;flex-shrink:0}
+.growth-pending-note{color:#A5745F;font-size:11px;line-height:1.35}
+#growthPhotoRetry{display:block;width:100%;padding:10px;border:1px solid #E5CFC6;border-radius:10px;background:#FFF8F5;color:#9F6651;font-weight:700;font-size:13px;cursor:pointer;margin:10px 0 4px;min-height:42px}
+#growthPhotoError:not([hidden]){display:block;margin:10px 0;line-height:1.5}

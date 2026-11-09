@@ -1984,6 +1984,9 @@
     growthState.loaded=true;growthState.lastSync=Date.now();growthRebuild();
     try{localStorage.setItem(growthCacheKey,JSON.stringify({api:API,...data,savedAt:growthState.lastSync}));}catch(e){}
     if(careMode==='growth')renderGrowth();
+    // A photo dialog opened while its diary was saving should become usable
+    // automatically after that diary is confirmed by Google Sheets.
+    if(typeof photoState!=='undefined'&&$('#growthPhotoEditor')?.open)photoRenderEditor();
   }
   async function growthRefresh(){
     if(!state.connected||growthState.loading||growthState.busy)return;
@@ -2036,7 +2039,10 @@
   }
   function growthEnqueue(action,record,id,kind){
     if(!state.secret){growthMsg('SECRET을 연결해 주세요.',true);return false;}
-    if(growthState.queue.some(j=>j.id===id)){growthMsg('이 기록의 이전 저장이 완료되면 다시 시도해 주세요.',true);return false;}
+    // Don't lock the edit button when the preceding save is pending.
+    // The existing serial queue writes each change in order, including edits
+    // following an unsynced new diary. This preserves the latest user input.
+    if(growthState.queue.length>=60){growthMsg('저장 대기가 많습니다. 재시도 후 수정해 주세요.',true);return false;}
     const job={action,id,kind,record:record?{...record}:null,needsReconcile:false};
     growthState.queue.push(job);
     if(!growthJournalSave()){growthState.queue.pop();growthMsg('저장 대기 정보를 기기에 보관하지 못했습니다. 저장 공간을 확인하세요.',true);return false;}
@@ -2074,12 +2080,15 @@
       const own=photoState.photos.filter(photo=>photo.momentId===record.id);
       const add=careLine(row,'button','growth-photo-add-btn',`📷 ${own.length}/5`);add.type='button';
       add.title='사진 추가·관리';
-      add.disabled=growthState.queue.some(j=>j.id===record.id)||!growthState.serverMoments.some(m=>m.id===record.id);
+      // Never silently disable this action: open the photo dialog and explain
+      // any server-sync prerequisite inside it.
       add.addEventListener('click',()=>photoOpenEditor(record.id));
     }
-    const btn=careLine(row,'button','', '수정');btn.type='button';
-    btn.disabled=growthState.queue.some(j=>j.id===record.id);
+    const btn=careLine(row,'button','growth-entry-edit-btn', '수정');btn.type='button';
     btn.addEventListener('click',()=>growthOpenEditor(kind,record));
+    if(growthState.queue.some(j=>j.id===record.id)){
+      const pending=document.createElement('small');pending.className='growth-pending-note';pending.textContent='저장 확인 중';info.append(pending);
+    }
     return row;
   }
   function growthGraph(){
@@ -2261,7 +2270,10 @@
       const data=await photoRead();
       if(seq!==photoState.seq||secret!==state.secret)return;
       photoApply(data);photoStatus(`부부 공유 앨범 동기화 완료 · 사진 ${data.length}장`);
-    }catch(e){if(seq===photoState.seq)photoStatus('사진 목록 확인 실패 · '+e.message,true);}
+    }catch(e){if(seq===photoState.seq){
+      photoStatus('사진 목록 확인 실패 · '+e.message,true);
+      if($('#growthPhotoEditor').open)photoModalError('사진 연결 오류: '+e.message+' · Apps Script에 v31 코드를 적용하고 prepareBabyPrepV31 실행 및 웹앱 새 버전 배포를 확인하세요.');
+    }}
     finally{if(seq===photoState.seq)photoState.loading=false;}
   }
   function photoImageData(base64){
@@ -2321,21 +2333,32 @@
   function photoModalError(message){const el=$('#growthPhotoError');el.textContent=message;el.hidden=!message;}
   function photoOpenEditor(momentId){
     if(!state.connected)return photoStatus('Google Sheets에 연결한 후 사진을 추가해 주세요.',true);
-    const moment=growthState.serverMoments.find(r=>r.id===momentId);
-    if(!moment)return photoStatus('성장 순간 저장이 끝난 후 사진을 추가해 주세요.',true);
+    const moment=photoMoment(momentId)||growthState.serverMoments.find(r=>r.id===momentId);
+    if(!moment)return photoStatus('성장일기를 찾을 수 없습니다. 기록 목록을 새로고침해 주세요.',true);
     photoState.activeMomentId=momentId;
     $('#growthPhotoContext').textContent=`${moment.date} · ${moment.title}`;
     $('#growthPhotoFiles').value='';$('#growthPhotoFileCount').textContent='갤러리에서 사진을 선택해 주세요.';
-    photoModalError('');photoRenderEditor();$('#growthPhotoEditor').showModal();
-    if(!photoState.loaded)void photoRefresh();
+    photoModalError('');$('#growthPhotoEditor').showModal();photoRenderEditor();
+    if(state.connected&&!photoState.loaded)void photoRefresh();
   }
   function photoRenderEditor(){
     const grid=$('#growthPhotoEditorList');grid.replaceChildren();
     const moment=photoMoment(photoState.activeMomentId)||growthState.serverMoments.find(m=>m.id===photoState.activeMomentId);
     const files=photoForMoment(photoState.activeMomentId);
     files.forEach(p=>grid.append(photoThumb(p,moment)));
-    $('#growthPhotoUpload').disabled=photoState.busy||files.length>=5||!photoState.loaded;
+    const persisted=growthState.serverMoments.some(m=>m.id===photoState.activeMomentId);
+    const pending=growthState.queue.some(j=>j.id===photoState.activeMomentId);
+    // Upload stays tappable so network/setup failures can be explained instead
+    // of appearing as an unresponsive gray button.
+    $('#growthPhotoUpload').disabled=photoState.busy||files.length>=5;
     if(files.length>=5)$('#growthPhotoFileCount').textContent='사진 5장이 등록돼 있어요. 다른 사진을 추가하려면 기존 사진을 삭제하세요.';
+    else if(!state.connected)photoModalError('Google Sheets 연결이 끊겼습니다. 설정에서 연결을 확인하고 다시 시도하세요.');
+    else if(!persisted&&pending)photoModalError('성장일기를 Google Sheets에 저장 중입니다. 먼저 성장 기록의 ‘재시도’를 눌러 저장을 완료해 주세요.');
+    else if(!persisted)photoModalError('성장일기가 서버에 없습니다. 육아 → 성장 기록에서 새로고침을 눌러 주세요.');
+    else if(!photoState.loaded){
+      if(!$('#growthPhotoError').textContent.startsWith('사진 연결 오류:')&&!$('#growthPhotoError').textContent.startsWith('사진 서버 연결 실패:'))
+        photoModalError('사진 목록 연결 확인 중입니다. ‘선택한 사진 업로드’를 누르면 연결 상태를 다시 확인합니다.');
+    }else if(!photoState.busy&&(/^(성장일기를 Google Sheets에 저장 중입니다|성장일기가 서버에 없습니다|사진 목록 연결 확인 중입니다)/).test($('#growthPhotoError').textContent))photoModalError('');
   }
   async function photoJpeg(file){
     if(!file||(!/^image\//.test(file.type)&&! /\.(jpg|jpeg|png|webp|heic|heif)$/i.test(file.name)))throw new Error('사진 파일을 선택하세요.');
@@ -2375,11 +2398,20 @@
   async function photoUpload(){
     if(photoState.busy)return;
     const momentId=photoState.activeMomentId;
-    if(!photoState.loaded){photoModalError('먼저 사진 목록을 새로고침해 주세요.');return;}
     const chosen=[...$('#growthPhotoFiles').files];
     if(!chosen.length){photoModalError('업로드할 사진을 선택해 주세요.');return;}
+    if(!state.connected){photoModalError('Google Sheets 연결을 먼저 확인해 주세요. 설정에서 다시 연결할 수 있습니다.');return;}
+    if(!growthState.serverMoments.some(r=>r.id===momentId)){
+      if(growthState.queue.some(j=>j.id===momentId)&&!growthState.busy)void growthDrain();
+      photoModalError('성장 순간이 아직 서버에 저장되지 않았습니다. 상단 성장 기록의 저장 상태를 확인한 뒤 다시 눌러 주세요.');return;
+    }
+    // On first visit or after a failed album sync, fetch the authoritative
+    // photo list before enforcing the five-photo cap. Preserve selected files.
+    if(!photoState.loaded){
+      try{photoApply(await photoRead());photoModalError('');}
+      catch(e){photoModalError('사진 서버 연결 실패: '+e.message+' · Apps Script의 prepareBabyPrepV31 실행과 새 버전 배포를 확인하세요.');return;}
+    }
     if(photoForMoment(momentId).length+chosen.length>5){photoModalError('성장일기 한 건당 사진은 최대 5장입니다.');return;}
-    if(!growthState.serverMoments.some(r=>r.id===momentId)){photoModalError('성장일기 저장 완료 후 다시 시도해 주세요.');return;}
     photoState.busy=true;photoModalError('');$('#growthPhotoUpload').disabled=true;
     try{
       for(let i=0;i<chosen.length;i++){
@@ -2392,7 +2424,7 @@
       $('#growthPhotoFiles').value='';
       $('#growthPhotoFileCount').textContent=`선택한 ${chosen.length}장 업로드 완료 · 다른 기기에서도 확인할 수 있어요.`;
       photoStatus('사진 업로드 완료 · 두 기기에 공유됩니다.');
-    }catch(e){photoModalError('업로드/저장 확인 실패: '+e.message+' 사진 목록을 새로고침한 뒤 중복 여부를 확인해 주세요.');}
+    }catch(e){photoModalError('업로드 실패 또는 저장 확인 지연: '+e.message+' · 사진이 중복될 수 있으니 앨범을 새로고침하고 확인하세요. Apps Script v31 배포·Google Drive 권한도 확인해 주세요.');}
     finally{photoState.busy=false;photoRenderEditor();}
   }
   async function photoOpenViewer(id){
@@ -2425,6 +2457,12 @@
     $('#growthPhotoEditor').addEventListener('cancel',e=>{if(photoState.busy)e.preventDefault();});
     $('#growthPhotoFiles').addEventListener('change',e=>{const files=[...e.target.files];$('#growthPhotoFileCount').textContent=files.length?`${files.length}장 선택됨 · 사진은 업로드 전에 자동 압축됩니다.`:'사진을 선택해 주세요.';});
     $('#growthPhotoForm').addEventListener('submit',e=>{e.preventDefault();void photoUpload();});
+    $('#growthPhotoRetry').addEventListener('click',async()=>{
+      photoModalError('연결 및 저장 상태 확인 중…');
+      if(growthState.queue.length&&!growthState.busy)await growthDrain();
+      if(state.connected){await growthRefresh();await photoRefresh();}
+      if($('#growthPhotoEditor').open)photoRenderEditor();
+    });
     $('#growthPhotoViewerClose').addEventListener('click',()=>$('#growthPhotoViewer').close());
     $('#growthPhotoDelete').addEventListener('click',()=>void photoDelete());
   }
