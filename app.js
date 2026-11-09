@@ -2232,13 +2232,15 @@
   // BabyPrep v31 — photo metadata from Sheets, private photo content via signed GET.
   // Image bytes are kept in memory (Blob URLs), never in localStorage or public Drive links.
   const photoState={photos:[],loaded:false,loading:false,busy:false,seq:0,lastSync:0,
-    activeMomentId:null,activePhotoId:null,month:'',images:new Map(),pending:new Map()};
+    activeMomentId:null,activePhotoId:null,month:'',images:new Map(),pending:new Map(),
+    prepared:new WeakMap(),prepareSeq:0,uploadDraft:null};
   function photoNewId(){return 'BPH-'+Array.from(crypto.getRandomValues(new Uint8Array(8)),n=>n.toString(16).padStart(2,'0')).join('').toUpperCase();}
   function photoClear(){
     photoState.seq++;photoState.photos=[];photoState.loaded=false;photoState.loading=false;photoState.busy=false;
     photoState.lastSync=0;photoState.activeMomentId=null;photoState.activePhotoId=null;photoState.month='';
     for(const url of photoState.images.values())URL.revokeObjectURL(url);
     photoState.images.clear();photoState.pending.clear();
+    photoState.prepared=new WeakMap();photoState.prepareSeq++;photoState.uploadDraft=null;
     if($('#growthPhotoViewer').open)$('#growthPhotoViewer').close();
     if($('#growthPhotoEditor').open)$('#growthPhotoEditor').close();
   }
@@ -2336,6 +2338,7 @@
     const moment=photoMoment(momentId)||growthState.serverMoments.find(r=>r.id===momentId);
     if(!moment)return photoStatus('성장일기를 찾을 수 없습니다. 기록 목록을 새로고침해 주세요.',true);
     photoState.activeMomentId=momentId;
+    photoState.prepared=new WeakMap();photoState.prepareSeq++;photoState.uploadDraft=null;
     $('#growthPhotoContext').textContent=`${moment.date} · ${moment.title}`;
     $('#growthPhotoFiles').value='';$('#growthPhotoFileCount').textContent='갤러리에서 사진을 선택해 주세요.';
     photoModalError('');$('#growthPhotoEditor').showModal();photoRenderEditor();
@@ -2349,18 +2352,19 @@
     const persisted=growthState.serverMoments.some(m=>m.id===photoState.activeMomentId);
     const pending=growthState.queue.some(j=>j.id===photoState.activeMomentId);
     const preserveDetailedError=/^(업로드 중단:|성장일기 저장 확인 실패:)/.test($('#growthPhotoError').textContent);
-    // Upload stays tappable so network/setup failures can be explained instead
-    // of appearing as an unresponsive gray button.
     $('#growthPhotoUpload').disabled=photoState.busy||files.length>=5;
+    $('#growthPhotoFiles').disabled=photoState.busy;
     if(files.length>=5)$('#growthPhotoFileCount').textContent='사진 5장이 등록돼 있어요. 다른 사진을 추가하려면 기존 사진을 삭제하세요.';
     else if(!state.connected)photoModalError('Google Sheets 연결이 끊겼습니다. 설정에서 연결을 확인하고 다시 시도하세요.');
-    else if(!persisted&&pending&&!preserveDetailedError)photoModalError('성장일기의 저장 확인이 아직 끝나지 않았습니다. 사진을 선택하고 업로드하면 Google Sheets의 최신 기록을 직접 확인합니다.');
-    else if(!persisted&&!preserveDetailedError)photoModalError('앱의 성장일기 저장 상태가 최신이 아닐 수 있습니다. 사진 업로드 시 Google Sheets를 다시 확인합니다.');
+    else if(!persisted&&pending&&!preserveDetailedError)photoModalError('성장일기 저장 확인이 진행 중입니다. 업로드 시 Google Sheets를 다시 확인합니다.');
+    else if(!persisted&&!preserveDetailedError)photoModalError('성장일기의 서버 저장 상태를 업로드 시 다시 확인합니다.');
     else if(!photoState.loaded){
       if(!$('#growthPhotoError').textContent.startsWith('사진 연결 오류:')&&!$('#growthPhotoError').textContent.startsWith('사진 서버 연결 실패:'))
-        photoModalError('사진 목록 연결 확인 중입니다. ‘선택한 사진 업로드’를 누르면 연결 상태를 다시 확인합니다.');
-    }else if(!photoState.busy&&(/^(성장일기를 Google Sheets에 저장 중입니다|성장일기가 서버에 없습니다|사진 목록 연결 확인 중입니다)/).test($('#growthPhotoError').textContent))photoModalError('');
+        photoModalError('사진 목록 연결 확인 중입니다. 업로드 시 최신 목록을 다시 확인합니다.');
+    }else if(!photoState.busy&&/^(성장일기 저장 확인이 진행 중입니다|성장일기의 서버 저장 상태|사진 목록 연결 확인 중입니다)/.test($('#growthPhotoError').textContent))photoModalError('');
   }
+  // v31.4: resize once at a mobile-friendly resolution.  A small JPEG
+  // reduces transfer time more than repeatedly polling Google Sheets does.
   async function photoJpeg(file){
     if(!file||(!/^image\//.test(file.type)&&! /\.(jpg|jpeg|png|webp|heic|heif)$/i.test(file.name)))throw new Error('사진 파일을 선택하세요.');
     if(file.size>35*1024*1024)throw new Error('원본 사진이 너무 큽니다(최대 35MB).');
@@ -2368,7 +2372,7 @@
     try{
       image=new Image();image.decoding='async';image.src=original;
       await new Promise((resolve,reject)=>{if(image.complete&&image.naturalWidth){resolve();return;}
-        image.onload=resolve;image.onerror=()=>reject(new Error('이 사진 형식을 열 수 없습니다. JPEG/PNG로 변환한 뒤 다시 시도해 주세요.'));});
+        image.onload=resolve;image.onerror=()=>reject(new Error('사진을 열 수 없습니다. JPEG/PNG로 변환한 뒤 다시 시도해 주세요.'));});
       if(!image.naturalWidth||!image.naturalHeight)throw new Error('사진 크기를 확인할 수 없습니다.');
       const toBlob=(edge,quality)=>new Promise((resolve,reject)=>{
         const scale=Math.min(1,edge/Math.max(image.naturalWidth,image.naturalHeight));
@@ -2378,14 +2382,35 @@
         canvas.toBlob(b=>b?resolve(b):reject(new Error('사진 압축에 실패했습니다.')),'image/jpeg',quality);
       });
       let output=null;
-      for(const [edge,quality] of [[1280,.78],[1024,.67],[840,.58],[720,.48]]){
-        output=await toBlob(edge,quality);if(output.size<=600000)break;
+      for(const [edge,quality] of [[1024,.70],[900,.62],[800,.55],[720,.48]]){
+        output=await toBlob(edge,quality);
+        if(output.size<=260000)break;
       }
       if(output.size>600000)throw new Error('사진 용량을 줄이지 못했습니다. 작은 이미지를 선택해 주세요.');
       const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result||''));reader.onerror=()=>reject(new Error('사진 읽기에 실패했습니다.'));reader.readAsDataURL(output);});
       if(!data.startsWith('data:image/jpeg;base64,'))throw new Error('사진 형식 변환에 실패했습니다.');
-      return data.split(',')[1];
+      return data.slice('data:image/jpeg;base64,'.length);
     }finally{URL.revokeObjectURL(original);}
+  }
+  // Start preparing images as soon as they are selected; work sequentially
+  // to avoid memory spikes on Android/iPhone with multiple large photos.
+  async function photoPrepareFiles(files){
+    const seq=++photoState.prepareSeq;
+    photoState.prepared=new WeakMap();photoState.uploadDraft=null;
+    if(!files.length){$('#growthPhotoFileCount').textContent='사진을 선택해 주세요.';return;}
+    for(let i=0;i<files.length;i++){
+      const file=files[i];
+      const result=photoJpeg(file).then(base64=>({base64}),error=>({error}));
+      photoState.prepared.set(file,result);
+      if(seq===photoState.prepareSeq&&!photoState.busy)$('#growthPhotoFileCount').textContent=`${files.length}장 선택 · ${i+1}/${files.length} 사진 최적화 중…`;
+      const outcome=await result;
+      if(seq!==photoState.prepareSeq)return;
+      if(outcome.error){
+        if(!photoState.busy)photoModalError(`사진 ${i+1} 변환 실패: ${outcome.error.message}`);
+        return;
+      }
+    }
+    if(seq===photoState.prepareSeq&&!photoState.busy)$('#growthPhotoFileCount').textContent=`${files.length}장 최적화 완료 · 업로드할 준비가 됐어요.`;
   }
   async function photoConfirm(id,exists){
     let lastError=null;
@@ -2396,58 +2421,101 @@
     }
     throw lastError||new Error('사진 저장 확인이 지연되고 있습니다. 새로고침 후 확인하세요.');
   }
-  // v31.2: The on-device serverMoments snapshot may lag a successful Sheets
-  // write (e.g., opaque POST completed but its follow-up read timed out).
-  // A missing ID in that snapshot is NOT proof that the diary is unsaved.
-  // Re-check the authoritative signed growthList before blocking photo upload.
+  // v31.2: a local growth snapshot may lag behind a successful Sheets write.
+  // Confirm this exact ID against the signed server response before uploading.
   async function photoEnsureSavedMoment(momentId){
     if(growthState.serverMoments.some(r=>r.id===momentId))return true;
     const data=await growthRead();
-    // Keep the user's pending edits layered above the verified server data.
     growthApplyServer(data);
     return data.moments.some(r=>r.id===momentId);
+  }
+  // One confirmation for the entire selection, rather than one GET per image.
+  // POST is opaque (no-cors), so confirmation must still be authoritative.
+  async function photoConfirmSelection(entries,momentId){
+    let latest=null,lastError=null;
+    const expected=entries.map(e=>e.id);
+    for(const ms of [0,450,1000,1900,3200]){
+      if(ms)await new Promise(done=>setTimeout(done,ms));
+      try{
+        const data=await photoRead();latest=data;photoApply(data);
+        const found=new Set(data.filter(p=>p.momentId===momentId).map(p=>p.id));
+        if(expected.every(id=>found.has(id)))return {confirmed:expected,missing:[]};
+      }catch(e){lastError=e;}
+    }
+    if(!latest)throw lastError||new Error('사진 목록 저장 확인에 실패했습니다.');
+    const found=new Set(latest.filter(p=>p.momentId===momentId).map(p=>p.id));
+    return {confirmed:expected.filter(id=>found.has(id)),missing:expected.filter(id=>!found.has(id))};
   }
   async function photoUpload(){
     if(photoState.busy)return;
     const momentId=photoState.activeMomentId;
     const chosen=[...$('#growthPhotoFiles').files];
     if(!chosen.length){photoModalError('업로드할 사진을 선택해 주세요.');return;}
-    if(!state.connected){photoModalError('Google Sheets 연결을 먼저 확인해 주세요. 설정에서 다시 연결할 수 있습니다.');return;}
-    // Mark busy BEFORE the network preflight so a double tap cannot submit
-    // two identical uploads while a stale diary is being reconciled.
-    photoState.busy=true;photoModalError('');$('#growthPhotoUpload').disabled=true;
+    if(!state.connected){photoModalError('Google Sheets 연결을 먼저 확인해 주세요.');return;}
+    // Reuse photo IDs for retries: if a POST succeeded but its confirmation
+    // timed out, the server's idempotent photoAdd will not create duplicates.
+    let draft=photoState.uploadDraft;
+    if(!draft||draft.momentId!==momentId||draft.entries.length!==chosen.length||!draft.entries.every((e,i)=>e.file===chosen[i])){
+      draft={momentId,entries:chosen.map(file=>({file,id:photoNewId()}))};
+      photoState.uploadDraft=draft;
+    }
+    photoState.busy=true;photoModalError('');$('#growthPhotoUpload').disabled=true;$('#growthPhotoFiles').disabled=true;
     try{
       if(!growthState.serverMoments.some(r=>r.id===momentId)){
-        $('#growthPhotoFileCount').textContent='Google Sheets에 저장된 성장일기 확인 중…';
-        let confirmed;
-        try{confirmed=await photoEnsureSavedMoment(momentId);}
-        catch(e){throw new Error('성장일기 확인 요청에 실패했습니다: '+e.message+' · 성장 기록의 새로고침과 Apps Script 웹앱 배포를 확인해 주세요.');}
-        if(!confirmed){
+        $('#growthPhotoFileCount').textContent='Google Sheets 성장일기 확인 중…';
+        let saved;
+        try{saved=await photoEnsureSavedMoment(momentId);}
+        catch(e){throw new Error('성장일기 저장 확인 실패: '+e.message);}
+        if(!saved){
           if(growthState.queue.some(j=>j.id===momentId)&&!growthState.busy)void growthDrain();
-          throw new Error('Google Sheets에서 동일한 성장일기 ID를 찾지 못했습니다. 시트에 같은 제목이 있어도 A열 ID가 다르면 다른 기록입니다. 성장 기록의 저장 상태와 A열 ID를 확인해 주세요.');
+          throw new Error('Google Sheets에서 동일한 성장일기 ID를 찾지 못했습니다. A열 ID와 저장 상태를 확인해 주세요.');
         }
       }
-      // On first visit or after a failed album sync, fetch the authoritative
-      // photo list before enforcing the five-photo cap.
       if(!photoState.loaded){
-        let list;
-        try{list=await photoRead();}catch(e){throw new Error('사진 서버 연결 실패: '+e.message+' · prepareBabyPrepV31 실행 및 Apps Script 새 버전 배포를 확인해 주세요.');}
-        photoApply(list);
+        try{photoApply(await photoRead());}
+        catch(e){throw new Error('사진 목록 연결 실패: '+e.message+' · Apps Script v31 배포 상태를 확인해 주세요.');}
       }
-      if(photoForMoment(momentId).length+chosen.length>5)throw new Error('성장일기 한 건당 사진은 최대 5장입니다.');
-      for(let i=0;i<chosen.length;i++){
-        $('#growthPhotoFileCount').textContent=`${i+1}/${chosen.length} · 사진 변환·업로드 중…`;
-        const base64=await photoJpeg(chosen[i]),id=photoNewId();
-        let postError=null;
-        try{await sendMutation('photoAdd',{id,momentId,base64});}catch(e){postError=e;}
-        try{await photoConfirm(id,true);}catch(e){throw postError||e;}
+      const existing=new Set(photoForMoment(momentId).map(p=>p.id));
+      const outstanding=draft.entries.filter(e=>!existing.has(e.id));
+      if(existing.size+outstanding.length>5)throw new Error('성장일기 한 건당 사진은 최대 5장입니다.');
+      if(!outstanding.length){
+        $('#growthPhotoFileCount').textContent='이미 저장된 사진입니다.';
+      }else{
+        // Preparation may already be complete because it starts on file selection.
+        const uploads=[];
+        for(let i=0;i<outstanding.length;i++){
+          const entry=outstanding[i];
+          $('#growthPhotoFileCount').textContent=`${i+1}/${outstanding.length} 사진 전송 준비 중…`;
+          let prepared=photoState.prepared.get(entry.file);
+          if(!prepared){prepared=photoJpeg(entry.file).then(base64=>({base64}),error=>({error}));photoState.prepared.set(entry.file,prepared);}
+          const result=await prepared;
+          if(result.error)throw new Error(`사진 ${i+1}: ${result.error.message}`);
+          uploads.push({...entry,base64:result.base64});
+        }
+        let cursor=0,completed=0;
+        const worker=async()=>{
+          while(cursor<uploads.length){
+            const entry=uploads[cursor++];
+            try{await sendMutation('photoAdd',{id:entry.id,momentId,base64:entry.base64});}
+            catch(e){/* POST may have committed even if the browser saw an error. */}
+            completed++;
+            $('#growthPhotoFileCount').textContent=`${completed}/${uploads.length}장 전송 요청 완료 · 저장 확인 중…`;
+          }
+        };
+        // Two parallel requests balance mobile latency with Apps Script locking.
+        await Promise.all(Array.from({length:Math.min(2,uploads.length)},()=>worker()));
       }
+      const result=await photoConfirmSelection(draft.entries,momentId);
+      if(result.missing.length){
+        throw new Error(`${result.confirmed.length}/${draft.entries.length}장 저장 확인 · 나머지 ${result.missing.length}장은 같은 파일 선택 상태에서 다시 누르면 중복 없이 재시도합니다.`);
+      }
+      photoState.uploadDraft=null;photoState.prepared=new WeakMap();photoState.prepareSeq++;
       $('#growthPhotoFiles').value='';
-      $('#growthPhotoFileCount').textContent=`선택한 ${chosen.length}장 업로드 완료 · 다른 기기에서도 확인할 수 있어요.`;
+      $('#growthPhotoFileCount').textContent=`${draft.entries.length}장 저장 확인 완료 · 아빠·엄마가 함께 볼 수 있어요.`;
       photoStatus('사진 업로드 완료 · 두 기기에 공유됩니다.');
     }catch(e){
-      photoModalError('업로드 중단: '+e.message+' · 재시도 전에 앨범에서 사진 등록 여부를 확인해 주세요.');
-      if($('#growthPhotoFiles').files.length)$('#growthPhotoFileCount').textContent=`${$('#growthPhotoFiles').files.length}장 선택됨 · 오류를 확인해 주세요.`;
+      photoModalError('업로드 중단: '+e.message);
+      if($('#growthPhotoFiles').files.length)$('#growthPhotoFileCount').textContent=`${$('#growthPhotoFiles').files.length}장 선택 상태 유지 · 오류 확인 후 재시도하세요.`;
     }finally{photoState.busy=false;photoRenderEditor();}
   }
   async function photoOpenViewer(id){
@@ -2478,14 +2546,12 @@
     $('#growthPhotoMonth').addEventListener('change',e=>{photoState.month=e.target.value;photoRenderAlbum();});
     $('#growthPhotoCancel').addEventListener('click',()=>{if(!photoState.busy)$('#growthPhotoEditor').close();});
     $('#growthPhotoEditor').addEventListener('cancel',e=>{if(photoState.busy)e.preventDefault();});
-    $('#growthPhotoFiles').addEventListener('change',e=>{const files=[...e.target.files];$('#growthPhotoFileCount').textContent=files.length?`${files.length}장 선택됨 · 사진은 업로드 전에 자동 압축됩니다.`:'사진을 선택해 주세요.';});
+    $('#growthPhotoFiles').addEventListener('change',e=>{photoModalError('');void photoPrepareFiles([...e.target.files]);});
     $('#growthPhotoForm').addEventListener('submit',e=>{e.preventDefault();void photoUpload();});
     $('#growthPhotoRetry').addEventListener('click',async()=>{
       if(photoState.busy)return;
       photoModalError('연결 및 저장 상태 확인 중…');
       if(state.connected){
-        // Do not depend on growthRefresh(), which returns early while another
-        // growth save/read is in progress. Verify this exact diary directly.
         try{
           const present=await photoEnsureSavedMoment(photoState.activeMomentId);
           if(!present)photoModalError('Google Sheets에서 동일한 성장일기 ID를 찾지 못했습니다. 성장일기 A열 ID와 저장 상태를 확인해 주세요.');
