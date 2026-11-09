@@ -55,7 +55,7 @@
     catch(e) {/* Caching is optional; Google Sheets remains the source of truth. */}
   }
   function setTab(view) {
-    for(const name of ['list','stats','family','settings']) {
+    for(const name of ['list','stats','family','care','settings']) {
       const current=name===view;
       $('#'+name+'View').hidden=!current;
       $('#'+name+'Tab').classList.toggle('active',current);
@@ -63,6 +63,7 @@
     }
     document.body.dataset.view=view;
     if(view==='stats')renderStatistics();
+    if(view==='care'){renderCare();if(state.connected){if(careState.queue.length)void careDrain();else void careRefresh();}}
     if(view==='family'){
       // Whenever the user opens the family tab, start at the current local month/day.
       // Manual month navigation remains in place until they leave this tab.
@@ -90,7 +91,7 @@
       ? `연결됨 · 준비물 ${state.items.length}개 · 자동 연결 ${hasPersistent?'켜짐':'저장 불가(이 세션만)'}`
       : state.cached?'저장된 목록 표시 중 · Google Sheets 연결 확인 전에는 수정할 수 없습니다.'
       : hasSaved?'SECRET이 저장되어 있습니다. 자동 연결을 시도합니다.':'SECRET이 등록되지 않았습니다.';
-    $('#forgetSecretBtn').disabled=state.pendingChecks.size>0||state.pendingEdits.size>0||state.familyQueue.length>0||(!hasSaved&&!state.connected);
+    $('#forgetSecretBtn').disabled=state.pendingChecks.size>0||state.pendingEdits.size>0||state.familyQueue.length>0||careState.queue.length>0||(!hasSaved&&!state.connected);
     $('#addItemBtn').disabled=!state.connected;
     $('#familyAddBtn').disabled=!state.connected;
     $('#familyAddOnDayBtn').disabled=!state.connected;
@@ -488,7 +489,7 @@
     $('#familyRetryBtn').hidden=!(state.familySyncFailed&&state.familyQueue.length);
     $('#familyRefreshBtn').disabled=state.familyLoading||state.familySyncBusy;
     const hasSaved=Boolean(safeRead(localStorage,storageKey)||safeRead(sessionStorage,oldSessionKey));
-    $('#forgetSecretBtn').disabled=state.pendingChecks.size>0||state.pendingEdits.size>0||state.familyQueue.length>0||(!hasSaved&&!state.connected);
+    $('#forgetSecretBtn').disabled=state.pendingChecks.size>0||state.pendingEdits.size>0||state.familyQueue.length>0||careState.queue.length>0||(!hasSaved&&!state.connected);
   }
   function restoreFamilyJournal() {
     try {
@@ -1113,6 +1114,7 @@
       if(fromSettings) setTab('list');
       if(state.mutationQueue.length) void drainMutationQueue();
       if(state.familyQueue.length)void drainFamilyQueue();
+      if(careState.queue.length)void careDrain();else void careRefresh();
       if(warmup) {
         // Attach immediately so a slow family GET cannot delay the first usable screen.
         void warmup.then(({events,error})=>{
@@ -1462,7 +1464,301 @@
   }
   $('#expandAllBtn').addEventListener('click',()=>{for(const cat of categoryNames(state.items))state.expanded.set(cat,true);saveExpanded();render();});
   $('#collapseAllBtn').addEventListener('click',()=>{for(const cat of categoryNames(state.items))state.expanded.set(cat,false);saveExpanded();render();});
+  // BabyPrep v28 (v26 base): shared one-touch newborn care log.
+  // Offline-safe local journal; never writes the user's SECRET into GitHub.
+  const careCacheKey='bp-care-cache-v28';
+  const careJournalKey='bp-care-pending-v28';
+  const caregiverKey='bp-care-parent-v28';
+  const amountKey='bp-care-formula-amount-v28';
+  const careTypes={feed:'수유',diaper:'기저귀',sleep:'수면'};
+  const careDetails={feed:[['formula','분유'],['breast-left','모유 · 왼쪽'],['breast-right','모유 · 오른쪽']],diaper:[['pee','소변'],['poo','대변'],['both','소변 + 대변']],sleep:[['sleep','수면']]};
+  const careMatchFields=['id','type','detail','start','end','amount','caregiver','note'];
+  const careState={server:[],events:[],queue:[],loaded:false,loading:false,busy:false,failed:false,lastSync:0,revision:0,fetchSeq:0,editingId:null};
+  function careAllowed(){return !!state.secret && (state.connected||state.cached);}
+  function careId(){return 'CARE-'+Array.from(crypto.getRandomValues(new Uint8Array(8)),b=>b.toString(16).padStart(2,'0')).join('').toUpperCase();}
+  function careIso(value){const d=new Date(value);return Number.isFinite(d.getTime())?d.toISOString():'';}
+  function careLocalInput(iso){
+    const d=new Date(iso);if(!Number.isFinite(d.getTime()))return '';
+    const pad=n=>String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  function careLocalDay(iso){const d=new Date(iso);return Number.isFinite(d.getTime())?`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`:'';}
+  function careTime(iso){const d=new Date(iso);return Number.isFinite(d.getTime())?d.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',hour12:false}):'--:--';}
+  function careMinutes(ms){const min=Math.max(0,Math.floor(ms/60000));return min>=60?`${Math.floor(min/60)}시간 ${min%60}분`:`${min}분`;}
+  function careDetailName(event){return (careDetails[event.type]||[]).find(([v])=>v===event.detail)?.[1]||event.detail;}
+  function careTitle(event){const name=careDetailName(event);if(event.type==='feed'&&event.detail==='formula')return `분유 ${event.amount}ml`;return name;}
+  function careIcon(event){return event.type==='feed'?'🍼':event.type==='diaper'?'🧷':'🌙';}
+  function careStorageOk(){
+    try{localStorage.setItem(careJournalKey,JSON.stringify({api:API,jobs:careState.queue}));return true;}
+    catch(e){return false;}
+  }
+  function careOverlay(server){
+    const merged=server.map(e=>({...e}));
+    for(const job of careState.queue){
+      const idx=merged.findIndex(e=>e.id===job.id);
+      if(job.action==='careDelete'){if(idx>=0)merged.splice(idx,1);}
+      else if(idx>=0)merged[idx]={...job.record};
+      else merged.push({...job.record});
+    }
+    return merged.sort((a,b)=>b.start.localeCompare(a.start)||b.id.localeCompare(a.id));
+  }
+  function careApplyServer(rows){
+    careState.server=rows;
+    careState.events=careOverlay(rows);
+    careState.loaded=true;
+    careState.lastSync=Date.now();
+    try{localStorage.setItem(careCacheKey,JSON.stringify({api:API,rows,savedAt:Date.now()}));}catch(e){}
+    renderCare();
+  }
+  function careRestore(){
+    try{
+      const cache=JSON.parse(safeRead(localStorage,careCacheKey)||'null');
+      if(cache&&cache.api===API&&Array.isArray(cache.rows)){
+        careState.server=cache.rows.filter(x=>x&&typeof x.id==='string');
+        careState.lastSync=Number(cache.savedAt)||0;careState.loaded=true;
+      }
+    }catch(e){}
+    try{
+      const pending=JSON.parse(safeRead(localStorage,careJournalKey)||'null');
+      if(pending&&pending.api===API&&Array.isArray(pending.jobs)){
+        careState.queue=pending.jobs.filter(j=>j&&['careAdd','careEdit','careDelete'].includes(j.action)&&/^CARE-[A-F0-9]{16}$/.test(String(j.id||''))).map(j=>({...j,needsReconcile:true}));
+      }
+    }catch(e){}
+    careState.events=careOverlay(careState.server);
+    $('#caregiverSelect').value=['아빠','엄마','함께'].includes(safeRead(localStorage,caregiverKey))?safeRead(localStorage,caregiverKey):'아빠';
+    const savedAmount=Number(safeRead(localStorage,amountKey));
+    if([40,60,80,100,120,140,160,180,200].includes(savedAmount))$('#careFormulaAmount').value=String(savedAmount);
+    renderCare();
+  }
+  function careMessage(message,isError=false){
+    const el=$('#careSyncStatus');el.textContent=message;el.classList.toggle('care-error',isError);
+  }
+  function careDataValid(raw){
+    if(!raw||!/^CARE-[A-F0-9]{16}$/.test(String(raw.id||'')))return null;
+    const type=String(raw.type||''),detail=String(raw.detail||'');
+    if(!careDetails[type]||!careDetails[type].some(([key])=>key===detail))return null;
+    const start=careIso(raw.start);if(!start)return null;
+    return {id:raw.id,type,detail,start,end:raw.end?careIso(raw.end):'',amount:Number(raw.amount)||0,
+      caregiver:String(raw.caregiver||'아빠'),note:String(raw.note||''),updated:String(raw.updated||'')};
+  }
+  async function careRead(){
+    const result=await listFromSheets('careList');
+    if(!result||!result.ok)throw new Error(result?.error||'육아 기록을 불러오지 못했습니다.');
+    if(!Array.isArray(result.events))throw new Error('육아 기록 응답 형식이 올바르지 않습니다.');
+    return result.events.map(careDataValid).filter(Boolean);
+  }
+  async function careRefresh(){
+    if(!state.connected||careState.loading||careState.busy)return;
+    careState.loading=true;
+    const atStart=careState.revision,seq=++careState.fetchSeq,usedSecret=state.secret;
+    careMessage(careState.loaded?'저장된 기록 표시 중 · 최신 정보 확인 중…':'육아 기록 불러오는 중…');
+    try{
+      const result=await careRead();
+      if(seq!==careState.fetchSeq||atStart!==careState.revision||usedSecret!==state.secret)return;
+      careApplyServer(result);
+      careMessage(careState.queue.length?`${careState.queue.length}건 저장 대기 중…`:`Google Sheets 동기화 완료 · 최근 기록 ${result.length}건`);
+    }catch(e){if(seq===careState.fetchSeq)careMessage('최신 기록 확인 실패 · '+e.message,true);}
+    finally{if(seq===careState.fetchSeq){careState.loading=false;renderCare();}}
+  }
+  function careMatches(rows,job){
+    const found=rows.find(r=>r.id===job.id);
+    if(job.action==='careDelete')return !found;
+    return !!found&&!!job.record&&careMatchFields.every(k=>found[k]===job.record[k]);
+  }
+  async function careConfirm(job){
+    let lastError=null;
+    for(const delay of [0,400,850,1600,2600]){
+      if(delay)await new Promise(resolve=>setTimeout(resolve,delay));
+      try{const rows=await careRead();if(careMatches(rows,job))return rows;}
+      catch(e){lastError=e;}
+    }
+    throw lastError||new Error('기록 저장을 아직 확인하지 못했습니다.');
+  }
+  async function careDrain(){
+    if(!state.connected||careState.busy||!careState.queue.length)return;
+    careState.busy=true;careState.failed=false;
+    renderCare();
+    try{
+      while(state.connected&&careState.queue.length){
+        const job=careState.queue[0];let confirmed=null;
+        if(job.needsReconcile){try{const rows=await careRead();if(careMatches(rows,job))confirmed=rows;}catch(e){}}
+        if(!confirmed){
+          job.needsReconcile=true;careStorageOk();
+          let sendError=null;
+          try{await sendMutation(job.action,job.action==='careDelete'?{id:job.id}:{record:job.record});}catch(e){sendError=e;}
+          try{confirmed=await careConfirm(job);}catch(e){throw sendError||e;}
+        }
+        careState.queue.shift();careStorageOk();
+        careApplyServer(confirmed);
+        careState.revision++;
+      }
+      careMessage('Google Sheets 저장 완료 · 부부 공유 중');
+    }catch(e){careState.failed=true;careMessage('저장 확인 필요 · 이 기기에 기록 보관 중. 다시 저장을 눌러 주세요. '+e.message,true);}
+    finally{careState.busy=false;renderCare();}
+  }
+  function careEnqueue(action,record,id){
+    if(!careAllowed()){careMessage('먼저 설정에서 SECRET을 연결해 주세요.',true);return false;}
+    if(careState.queue.some(j=>j.id===id)){
+      careMessage('이 기록이 먼저 저장되면 다시 시도해 주세요.',true);return false;
+    }
+    const job={action,id,record:record?{...record}:null,needsReconcile:false};
+    careState.queue.push(job);
+    if(!careStorageOk()){
+      careState.queue.pop();careMessage('이 기기에 저장 대기 정보를 보관하지 못했습니다. 저장소 공간을 확인하세요.',true);return false;
+    }
+    careState.revision++;
+    careState.events=careOverlay(careState.server);
+    renderCare();careMessage('기록을 바로 표시했습니다 · Google Sheets 저장 중…');
+    if(state.connected)void careDrain();
+    return true;
+  }
+  function careQuick(type,detail,amount=0){
+    const record={id:careId(),type,detail,start:new Date().toISOString(),end:'',amount:Number(amount)||0,caregiver:$('#caregiverSelect').value,note:''};
+    if(careEnqueue('careAdd',record,record.id)&&type==='feed'&&detail==='formula'){
+      try{localStorage.setItem(amountKey,String(amount));}catch(e){}
+    }
+  }
+  function careActiveSleep(){
+    return [...careState.events].filter(e=>e.type==='sleep'&&!e.end).sort((a,b)=>b.start.localeCompare(a.start))[0]||null;
+  }
+  function careToggleSleep(){
+    const active=careActiveSleep();
+    if(active){
+      if(careState.queue.some(j=>j.id===active.id)){
+        careMessage('수면 시작 기록이 Google Sheets에 저장되면 종료할 수 있어요.',true);return;
+      }
+      careEnqueue('careEdit',{...active,end:new Date().toISOString()},active.id);
+    }else careQuick('sleep','sleep');
+  }
+  function careStatToday(){
+    const now=new Date(),start=new Date(now.getFullYear(),now.getMonth(),now.getDate()).getTime();
+    let feed=0,ml=0,diaper=0,sleep=0;
+    for(const e of careState.events){
+      const began=new Date(e.start).getTime();if(!Number.isFinite(began))continue;
+      if(began>=start){if(e.type==='feed'){feed++;if(e.detail==='formula')ml+=e.amount;}else if(e.type==='diaper')diaper++;}
+      if(e.type==='sleep'){
+        const ended=e.end?new Date(e.end).getTime():now.getTime();
+        if(ended>start&&began<=now.getTime())sleep+=Math.max(0,Math.min(ended,now.getTime())-Math.max(began,start));
+      }
+    }
+    return {feed,ml,diaper,sleep};
+  }
+  function careLine(parent,tag,cls,text){const el=document.createElement(tag);if(cls)el.className=cls;el.textContent=String(text);parent.append(el);return el;}
+  function renderCare(){
+    const connected=careAllowed();
+    $('#careDisconnected').hidden=connected;
+    $('#careDashboard').hidden=!connected;
+    const queueCount=careState.queue.length;
+    $('#careRetryBtn').hidden=!queueCount;
+    $('#careDiscardBtn').hidden=!(careState.failed&&queueCount>0);
+    $('#careDiscardBtn').disabled=careState.busy;
+    $('#careRetryBtn').disabled=!state.connected||careState.busy;
+    $('#careRefreshBtn').disabled=!state.connected||careState.loading||careState.busy;
+    if(!connected)return;
+    const stat=careStatToday();
+    $('#careStatFeed').textContent=`${stat.feed}회`;
+    $('#careStatMilk').textContent=`분유 ${stat.ml}ml`;
+    $('#careStatDiaper').textContent=`${stat.diaper}회`;
+    $('#careStatSleep').textContent=careMinutes(stat.sleep);
+    const active=careActiveSleep(),sleepBtn=$('#careSleepBtn');
+    sleepBtn.textContent=active?'☀️ 수면 종료':'🌙 수면 시작';
+    sleepBtn.classList.toggle('sleeping',!!active);
+    $('#careSleepCurrent').textContent=active?`수면 중 · ${careTime(active.start)} 시작 · ${careMinutes(Date.now()-new Date(active.start).getTime())} 경과`:'현재 진행 중인 수면이 없어요.';
+    sleepBtn.disabled=!!active&&careState.queue.some(j=>j.id===active.id);
+    const list=$('#careRecentList');list.replaceChildren();
+    const rows=careState.events.slice(0,45);
+    if(!rows.length){
+      careLine(list,'p','care-empty',careState.loaded?'아직 기록이 없어요. 위 버튼을 눌러 첫 기록을 남겨보세요.':'Google Sheets에서 육아 기록을 불러오는 중이에요.');
+      return;
+    }
+    let prevDay='';
+    for(const event of rows){
+      const day=careLocalDay(event.start);
+      if(day!==prevDay){careLine(list,'div','care-day-heading',day===careLocalDay(new Date().toISOString())?'오늘 · '+day:day);prevDay=day;}
+      const row=document.createElement('article');row.className='care-record';
+      careLine(row,'div','care-record-icon',careIcon(event));
+      const info=document.createElement('div');info.className='care-record-info';
+      careLine(info,'strong','',careTitle(event));
+      const sub=[careTime(event.start),event.caregiver];
+      if(event.type==='sleep')sub.push(event.end?careMinutes(new Date(event.end)-new Date(event.start)):'진행 중');
+      if(event.note)sub.push(event.note);
+      careLine(info,'small','',sub.join(' · '));row.append(info);
+      const btn=document.createElement('button');btn.type='button';btn.className='care-edit-btn';btn.textContent='수정';
+      btn.disabled=careState.queue.some(j=>j.id===event.id);
+      btn.addEventListener('click',()=>careOpenEditor(event));row.append(btn);list.append(row);
+    }
+  }
+  function carePopulateDetail(type,selected){
+    const select=$('#careEditDetail');select.replaceChildren();
+    for(const [key,label] of careDetails[type]||[])select.add(new Option(label,key));
+    if(selected&&[...select.options].some(o=>o.value===selected))select.value=selected;
+    const isFormula=type==='feed'&&select.value==='formula';
+    $('#careAmountLabel').hidden=!isFormula;
+    $('#careEndLabel').hidden=type!=='sleep';
+  }
+  function careOpenEditor(event){
+    if(!careAllowed()){careMessage('먼저 연결해 주세요.',true);return;}
+    careState.editingId=event?.id||null;
+    $('#careEditorTitle').textContent=event?'육아 기록 수정':'육아 기록 직접 추가';
+    const type=event?.type||'feed';$('#careEditType').value=type;
+    carePopulateDetail(type,event?.detail||'formula');
+    $('#careEditStart').value=careLocalInput(event?.start||new Date().toISOString());
+    $('#careEditEnd').value=event?.end?careLocalInput(event.end):'';
+    $('#careEditAmount').value=String(event?.amount||120);
+    $('#careEditCaregiver').value=event?.caregiver||$('#caregiverSelect').value;
+    $('#careEditNote').value=event?.note||'';
+    $('#careDeleteBtn').hidden=!event;
+    $('#careEditError').hidden=true;$('#careEditError').textContent='';
+    $('#careEditor').showModal();
+  }
+  function careSaveEditor(){
+    const id=careState.editingId||careId();
+    const type=$('#careEditType').value,detail=$('#careEditDetail').value;
+    const start=careIso($('#careEditStart').value),end=$('#careEditEnd').value?careIso($('#careEditEnd').value):'';
+    const amount=type==='feed'&&detail==='formula'?Number($('#careEditAmount').value):0;
+    const error=text=>{$('#careEditError').textContent=text;$('#careEditError').hidden=false;};
+    if(!start||!careDetails[type]?.some(([value])=>value===detail))return error('기록 종류 또는 시작 시간을 확인해 주세요.');
+    if(new Date(start).getTime()>Date.now()+300000)return error('미래 시각에는 기록할 수 없습니다.');
+    if(type==='sleep'&&end&&(end<start||new Date(end).getTime()>Date.now()+300000))return error('수면 종료 시각을 확인해 주세요.');
+    if(type==='feed'&&detail==='formula'&&(!Number.isInteger(amount)||amount<1||amount>500))return error('분유량은 1~500ml로 입력해 주세요.');
+    const record={id,type,detail,start,end:type==='sleep'?end:'',amount,caregiver:$('#careEditCaregiver').value,note:$('#careEditNote').value.trim()};
+    if(careEnqueue(careState.editingId?'careEdit':'careAdd',record,id))$('#careEditor').close();
+    else error('저장 대기 상태를 확인한 후 다시 시도해 주세요.');
+  }
+  function careAttach(){
+    $('#careGoSettingsBtn').addEventListener('click',()=>setTab('settings'));
+    $('#caregiverSelect').addEventListener('change',()=>{try{localStorage.setItem(caregiverKey,$('#caregiverSelect').value);}catch(e){}});
+    $('#careFormulaAmount').addEventListener('change',()=>{try{localStorage.setItem(amountKey,$('#careFormulaAmount').value);}catch(e){}});
+    $('#careFormulaBtn').addEventListener('click',()=>careQuick('feed','formula',Number($('#careFormulaAmount').value)));
+    $('#careBreastLeftBtn').addEventListener('click',()=>careQuick('feed','breast-left'));
+    $('#careBreastRightBtn').addEventListener('click',()=>careQuick('feed','breast-right'));
+    $('#careDiaperPeeBtn').addEventListener('click',()=>careQuick('diaper','pee'));
+    $('#careDiaperPooBtn').addEventListener('click',()=>careQuick('diaper','poo'));
+    $('#careDiaperBothBtn').addEventListener('click',()=>careQuick('diaper','both'));
+    $('#careSleepBtn').addEventListener('click',careToggleSleep);
+    $('#careRefreshBtn').addEventListener('click',()=>careRefresh());
+    $('#careRetryBtn').addEventListener('click',()=>careDrain());
+    $('#careDiscardBtn').addEventListener('click',()=>{
+      if(!careState.failed||!careState.queue.length)return;
+      if(!window.confirm('첫 번째 저장 대기 기록을 취소할까요? 서버에 이미 반영된 기록은 새로고침 시 다시 나타날 수 있습니다.'))return;
+      careState.queue.shift();careStorageOk();careState.revision++;careState.failed=false;careState.events=careOverlay(careState.server);
+      renderCare();careMessage('선택한 저장 대기를 취소했습니다. 최신 기록을 다시 확인합니다.');
+      if(state.connected){if(careState.queue.length)void careDrain();else void careRefresh();}
+    });
+    $('#careManualBtn').addEventListener('click',()=>careOpenEditor(null));
+    $('#careEditorCancelBtn').addEventListener('click',()=>$('#careEditor').close());
+    $('#careEditType').addEventListener('change',()=>carePopulateDetail($('#careEditType').value));
+    $('#careEditDetail').addEventListener('change',()=>carePopulateDetail($('#careEditType').value,$('#careEditDetail').value));
+    $('#careEditForm').addEventListener('submit',e=>{e.preventDefault();careSaveEditor();});
+    $('#careDeleteBtn').addEventListener('click',()=>{
+      const id=careState.editingId;if(!id)return;
+      if(window.confirm('이 육아 기록을 부부 공유 내역에서 삭제할까요?')&&careEnqueue('careDelete',null,id))$('#careEditor').close();
+    });
+    window.setInterval(()=>{if(document.body.dataset.view==='care')renderCare();},60000);
+  }
+
   $('#listTab').addEventListener('click',()=>setTab('list'));
+  $('#careTab').addEventListener('click',()=>setTab('care'));
   $('#statsTab').addEventListener('click',()=>setTab('stats'));
   $('#familyTab').addEventListener('click',()=>setTab('family'));
   $('#settingsTab').addEventListener('click',()=>setTab('settings'));
@@ -1507,13 +1803,16 @@
     if(state.mutationQueue.length)void drainMutationQueue();
     if(state.familyQueue.length)void drainFamilyQueue();
     else if(state.connected)void loadFamilyEvents();
+    if(careState.queue.length)void careDrain();else if(state.connected)void careRefresh();
   });
   // Returning to the app checks for changes made by the other parent.
   // Cached entries stay visible while the remote check runs.
   document.addEventListener('visibilitychange',()=>{
     if(document.visibilityState!=='visible'||!state.connected)return;
-    if(state.familyQueue.length){void drainFamilyQueue();return;}
-    if(Date.now()-state.familyLastSyncAt>=FAMILY_RESUME_SYNC_MS)void loadFamilyEvents();
+    if(state.familyQueue.length)void drainFamilyQueue();
+    else if(Date.now()-state.familyLastSyncAt>=FAMILY_RESUME_SYNC_MS)void loadFamilyEvents();
+    if(careState.queue.length)void careDrain();
+    else if(Date.now()-careState.lastSync>=FAMILY_RESUME_SYNC_MS)void careRefresh();
   });
   $('#settingsForm').addEventListener('submit',e=>{
     e.preventDefault();
@@ -1533,7 +1832,9 @@
     safeRemove(sessionStorage,oldSessionKey);
     safeRemove(localStorage,journalKey);
     safeRemove(localStorage,familyCacheKey);safeRemove(localStorage,familyJournalKey);
+    safeRemove(localStorage,careCacheKey);safeRemove(localStorage,careJournalKey);
     state.familyQueue=[];state.familySavedEvents=[];state.familyServerEvents=[];state.familyLoaded=false;
+    careState.queue=[];careState.server=[];careState.events=[];careState.loaded=false;careState.lastSync=0;renderCare();
     state.secret='';state.items=[];state.connected=false;state.cached=false;state.pendingChecks.clear();
     state.pendingEdits.clear();state.mutationQueue=[];state.mutationFailed=false;updateQueueView();
     $('#secretInput').value='';
@@ -1576,6 +1877,8 @@
   }catch(e){}
   restoreJournal();
   restoreFamilyJournal();
+  careRestore();
+  careAttach();
   updateQueueView();
   updateConnectedView();
   updateFamilySyncUI();

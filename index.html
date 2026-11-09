@@ -18,9 +18,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=26">
+  <link rel="stylesheet" href="style.css?v=28">
   <script src="config.js" defer></script>
-  <script src="app.js?v=25" defer></script>
+  <script src="app.js?v=28" defer></script>
 </head>
 <body>
 <main class="wrap">
@@ -217,6 +217,41 @@
   </section>
 
 
+
+  <section id="careView" role="tabpanel" aria-labelledby="careTab" hidden>
+    <div class="view-heading care-heading"><h2>토리 육아 기록 ♡</h2><p>한 번의 터치로 남기는 우리 가족의 하루</p></div>
+    <section id="careDisconnected" class="login-card">
+      <div class="login-icon">🍼</div><h2>육아 기록 연결하기</h2>
+      <p>설정에서 SECRET을 연결하면 부부가 함께 수유·기저귀·수면 기록을 확인할 수 있어요.</p>
+      <button id="careGoSettingsBtn" type="button" class="primary">설정에서 연결하기</button>
+    </section>
+    <div id="careDashboard" hidden>
+      <div class="care-sync-row" role="status" aria-live="polite"><span id="careSyncStatus">최신 기록 확인 중…</span>
+        <div class="care-sync-actions"><button type="button" id="careRetryBtn" hidden>↻ 다시 저장</button><button type="button" id="careDiscardBtn" hidden>대기 기록 취소</button><button type="button" id="careRefreshBtn">↻ 새로고침</button></div>
+      </div>
+      <section class="care-today-card"><div class="care-section-title"><h3>오늘의 토리</h3><span>실시간 기록</span></div>
+        <div class="care-today-grid"><div><span>🍼 수유</span><strong id="careStatFeed">0회</strong><small id="careStatMilk">분유 0ml</small></div>
+          <div><span>🧷 기저귀</span><strong id="careStatDiaper">0회</strong><small>소변·대변 합계</small></div>
+          <div><span>🌙 수면</span><strong id="careStatSleep">0분</strong><small>오늘 누적</small></div>
+        </div></section>
+      <section class="care-panel" aria-label="원터치 기록">
+        <div class="care-section-title"><h3>원터치 기록</h3><span>누르는 즉시 기록</span></div>
+        <label class="care-parent-label">기록자 <select id="caregiverSelect"><option>아빠</option><option>엄마</option><option>함께</option></select></label>
+        <div class="care-action-heading"><strong>🍼 수유</strong><small>누른 시각으로 저장돼요</small></div>
+        <div class="care-formula-row"><label>분유량<select id="careFormulaAmount"><option value="40">40 ml</option><option value="60">60 ml</option><option value="80">80 ml</option><option value="100">100 ml</option><option value="120" selected>120 ml</option><option value="140">140 ml</option><option value="160">160 ml</option><option value="180">180 ml</option><option value="200">200 ml</option></select></label><button type="button" id="careFormulaBtn" class="care-action-btn care-peach">＋ 분유 기록</button></div>
+        <div class="care-action-grid"><button id="careBreastLeftBtn" type="button" class="care-action-btn">모유 · 왼쪽</button><button id="careBreastRightBtn" type="button" class="care-action-btn">모유 · 오른쪽</button></div>
+        <div class="care-action-heading"><strong>🧷 기저귀</strong><small>교체한 유형만 선택</small></div>
+        <div class="care-action-grid three"><button id="careDiaperPeeBtn" type="button" class="care-action-btn">💧 소변</button><button id="careDiaperPooBtn" type="button" class="care-action-btn">💩 대변</button><button id="careDiaperBothBtn" type="button" class="care-action-btn">둘 다</button></div>
+        <div class="care-action-heading"><strong>🌙 수면</strong><small>시작·종료 시간을 자동 기록</small></div>
+        <button id="careSleepBtn" type="button" class="care-action-btn care-sleep-btn">🌙 수면 시작</button>
+        <p id="careSleepCurrent" class="care-sleep-status">현재 진행 중인 수면이 없어요.</p>
+      </section>
+      <section class="care-panel care-history"><div class="care-section-title"><h3>최근 육아 기록</h3><button id="careManualBtn" type="button">＋ 직접 입력</button></div><div id="careRecentList" class="care-recent"></div>
+        <p class="care-footnote">최근 최대 500건을 동기화합니다. 오래된 기록은 Google Sheets '육아기록' 시트에 계속 보관됩니다. 다른 기기의 변경은 새로고침 또는 앱 복귀 시 반영됩니다.</p>
+      </section>
+    </div>
+  </section>
+
   <section id="settingsView" role="tabpanel" aria-labelledby="settingsTab" hidden>
     <div class="view-heading settings-heading"><h2>연결 설정</h2><p>토리 맞이 준비의 동기화 설정</p></div>
     <section class="login-card settings-card">
@@ -240,9 +275,27 @@
     <button id="listTab" type="button" role="tab" aria-selected="true" aria-controls="listView" class="tab active"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4.5h6M9 10l2 2 4-4M9 16h6"/></svg><span>준비물</span></button>
     <button id="statsTab" type="button" role="tab" aria-selected="false" aria-controls="statsView" class="tab"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V12M12 20V5M19 20V9" stroke-linecap="round"/></svg><span>통계</span></button>
     <button id="familyTab" type="button" role="tab" aria-selected="false" aria-controls="familyView" class="tab"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M7 3.5v3M17 3.5v3M3.5 9.5h17"/><circle cx="8" cy="13.5" r=".8" fill="currentColor" stroke="none"/><circle cx="12" cy="13.5" r=".8" fill="currentColor" stroke="none"/><circle cx="16" cy="13.5" r=".8" fill="currentColor" stroke="none"/><circle cx="8" cy="17" r=".8" fill="currentColor" stroke="none"/></svg><span>달력</span></button>
+    <button id="careTab" type="button" role="tab" aria-selected="false" aria-controls="careView" class="tab"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5h6v3l3 4v7a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-7l3-4V5Z"/><path d="M8 5h8M9 14h6M9 17h6"/></svg><span>육아</span></button>
     <button id="settingsTab" type="button" role="tab" aria-selected="false" aria-controls="settingsView" class="tab"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M10 2h4l.6 2.5 2 1.1 2.5-.7 2 3.4-1.8 1.9v2.3l1.8 1.9-2 3.4-2.5-.7-2 1.1L14 21h-4l-.6-2.5-2-1.1-2.5.7-2-3.4 1.8-1.9v-2.3L3 8.6l2-3.4 2.5.7 2-1.1L10 2z"/></svg><span>설정</span></button>
   </nav>
 </main>
+
+
+<dialog id="careEditor" aria-labelledby="careEditorTitle">
+  <form id="careEditForm">
+    <div class="dialog-head"><h2 id="careEditorTitle">육아 기록 수정</h2><button id="careEditorCancelBtn" type="button" class="close" aria-label="닫기">✕</button></div>
+    <p class="care-editor-caption">이미 기록한 내용을 수정하거나 지난 기록을 직접 추가할 수 있어요.</p>
+    <div class="care-edit-grid"><label>기록 종류<select id="careEditType"><option value="feed">수유</option><option value="diaper">기저귀</option><option value="sleep">수면</option></select></label>
+    <label>상세 종류<select id="careEditDetail"></select></label></div>
+    <label>시작 시각<input type="datetime-local" id="careEditStart" required></label>
+    <label id="careEndLabel" hidden>수면 종료 시각 (진행 중이면 비움)<input type="datetime-local" id="careEditEnd"></label>
+    <label id="careAmountLabel">분유량 (ml)<input type="number" id="careEditAmount" min="1" max="500" step="1" inputmode="numeric"></label>
+    <label>기록자<select id="careEditCaregiver"><option>아빠</option><option>엄마</option><option>함께</option></select></label>
+    <label>메모 (선택)<textarea id="careEditNote" rows="3" maxlength="200" placeholder="특이사항을 기록하세요"></textarea></label>
+    <p id="careEditError" class="care-edit-error" role="alert" hidden></p>
+    <button type="submit" class="primary">기록 저장</button><button type="button" id="careDeleteBtn" class="outline-danger" hidden>이 기록 삭제</button>
+  </form>
+</dialog>
 
 <dialog id="editor">
   <form id="editForm">
