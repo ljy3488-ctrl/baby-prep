@@ -1474,6 +1474,8 @@
   const careDetails={feed:[['formula','분유'],['breast-left','모유 · 왼쪽'],['breast-right','모유 · 오른쪽']],diaper:[['pee','소변'],['poo','대변'],['both','소변 + 대변']],sleep:[['sleep','수면']]};
   const careMatchFields=['id','type','detail','start','end','amount','caregiver','note'];
   const careState={server:[],events:[],queue:[],loaded:false,loading:false,busy:false,failed:false,lastSync:0,revision:0,fetchSeq:0,editingId:null};
+  let careMode='record';
+  let careStatsMetric='milk';
   function careAllowed(){return !!state.secret && (state.connected||state.cached);}
   function careId(){return 'CARE-'+Array.from(crypto.getRandomValues(new Uint8Array(8)),b=>b.toString(16).padStart(2,'0')).join('').toUpperCase();}
   function careIso(value){const d=new Date(value);return Number.isFinite(d.getTime())?d.toISOString():'';}
@@ -1643,6 +1645,137 @@
     }
     return {feed,ml,diaper,sleep};
   }
+  // BabyPrep v29: seven local calendar days, including today. This deliberately
+  // uses the existing verified care records: no new sheet or SECRET migration.
+  function careAnalyzeWeek(records,nowDate=new Date()){
+    const now=nowDate.getTime();
+    const days=Array.from({length:7},(_,i)=>{
+      const start=new Date(nowDate.getFullYear(),nowDate.getMonth(),nowDate.getDate()-6+i);
+      const end=new Date(start.getFullYear(),start.getMonth(),start.getDate()+1);
+      return {key:careLocalDay(start.toISOString()),start:start.getTime(),end:end.getTime(),
+        label:`${start.getMonth()+1}/${start.getDate()}`,weekday:'일월화수목금토'[start.getDay()],
+        milk:0,feed:0,diaper:0,sleep:0,formula:0,breast:0,pee:0,poo:0,both:0,sleepRanges:[]};
+    });
+    const byDate=new Map(days.map(day=>[day.key,day]));
+    for(const record of records){
+      const began=Date.parse(record.start);
+      if(!Number.isFinite(began)||began>now)continue;
+      if(record.type==='feed'||record.type==='diaper'){
+        const day=byDate.get(careLocalDay(record.start));
+        if(!day)continue;
+        if(record.type==='feed'){
+          day.feed++;
+          if(record.detail==='formula'){
+            day.formula++;
+            const amount=Number(record.amount);
+            if(Number.isFinite(amount)&&amount>0)day.milk+=amount;
+          }else if(record.detail==='breast-left'||record.detail==='breast-right')day.breast++;
+        }else{
+          day.diaper++;
+          if(record.detail==='pee')day.pee++;
+          else if(record.detail==='poo')day.poo++;
+          else if(record.detail==='both')day.both++;
+        }
+      }else if(record.type==='sleep'){
+        const endTime=record.end?Date.parse(record.end):now;
+        if(!Number.isFinite(endTime)||endTime<=began)continue;
+        const finalEnd=Math.min(endTime,now);
+        for(const day of days){
+          const from=Math.max(day.start,began),to=Math.min(day.end,finalEnd);
+          if(to>from)day.sleepRanges.push([from,to]);
+        }
+      }
+    }
+    // Overlapping/duplicate historical sleep intervals should not double count.
+    for(const day of days){
+      day.sleepRanges.sort((a,b)=>a[0]-b[0]);
+      let from=0,to=0;
+      for(const [nextFrom,nextTo] of day.sleepRanges){
+        if(to>nextFrom)to=Math.max(to,nextTo);
+        else {day.sleep+=Math.max(0,to-from);from=nextFrom;to=nextTo;}
+      }
+      day.sleep+=Math.max(0,to-from);
+      delete day.sleepRanges;
+    }
+    const total={milk:0,feed:0,diaper:0,sleep:0,formula:0,breast:0,pee:0,poo:0,both:0};
+    for(const day of days)for(const key of Object.keys(total))total[key]+=day[key];
+    return {days,total,start:days[0].start,now};
+  }
+  function careStatsNumber(value){return Number(value||0).toLocaleString('ko-KR');}
+  function careStatsDuration(ms){
+    const minutes=Math.round(ms/60000),hours=Math.floor(minutes/60);
+    return hours?`${hours}시간${minutes%60?' '+minutes%60+'분':''}`:`${minutes}분`;
+  }
+  function careStatsValue(metric,amount){
+    if(metric==='milk')return `${careStatsNumber(amount)}ml`;
+    if(metric==='sleep')return careStatsDuration(amount);
+    return `${careStatsNumber(amount)}회`;
+  }
+  function careStatsAverage(metric,total){
+    if(metric==='sleep')return careStatsDuration(total/7);
+    if(metric==='milk')return careStatsValue(metric,Math.round(total/7));
+    return `${(total/7).toFixed(1)}회`;
+  }
+  function careStatsBarLabel(metric,value){
+    if(!value)return '';
+    if(metric==='sleep')return `${(value/3600000).toFixed(1)}h`;
+    if(metric==='milk')return value>=1000?`${(value/1000).toFixed(1)}k`:careStatsNumber(value);
+    return careStatsNumber(value);
+  }
+  function renderCareAnalytics(){
+    const view=$('#careStatsPane');if(!view||view.hidden)return;
+    const week=careAnalyzeWeek(careState.events);
+    const {days,total}=week;
+    $('#careStatsWindow').textContent=`${days[0].label} ~ ${days[6].label} · 오늘 포함`;
+    $('#careWeekMilk').textContent=careStatsValue('milk',total.milk);
+    $('#careWeekMilkSub').textContent='하루 평균 '+careStatsAverage('milk',total.milk);
+    $('#careWeekFeed').textContent=careStatsValue('feed',total.feed);
+    $('#careWeekFeedSub').textContent='하루 평균 '+careStatsAverage('feed',total.feed);
+    $('#careWeekDiaper').textContent=careStatsValue('diaper',total.diaper);
+    $('#careWeekDiaperSub').textContent='하루 평균 '+careStatsAverage('diaper',total.diaper);
+    $('#careWeekSleep').textContent=careStatsValue('sleep',total.sleep);
+    $('#careWeekSleepSub').textContent='하루 평균 '+careStatsAverage('sleep',total.sleep);
+    $('#careWeekFormulaCount').textContent=careStatsValue('feed',total.formula);
+    $('#careWeekBottleAverage').textContent=careStatsValue('milk',total.formula?Math.round(total.milk/total.formula):0);
+    $('#careWeekBreastCount').textContent=careStatsValue('feed',total.breast);
+    $('#careWeekDiaperKinds').textContent=`${total.pee} / ${total.poo} / ${total.both}`;
+    const names={milk:'분유량 (ml)',feed:'수유 (회)',diaper:'기저귀 (회)',sleep:'수면 (시간)'};
+    const metric=careStatsMetric;
+    $('#careChartTotal').textContent=`최근 7일 ${careStatsValue(metric,total[metric])}`;
+    $('#careChartAverage').textContent=`하루 평균 ${careStatsAverage(metric,total[metric])}`;
+    $('#careChartLegend').textContent=names[metric];
+    for(const btn of document.querySelectorAll('[data-care-metric]')){
+      const active=btn.dataset.careMetric===metric;
+      btn.classList.toggle('active',active);
+      btn.setAttribute('aria-pressed',String(active));
+    }
+    const max=Math.max(...days.map(day=>day[metric]),0),bars=$('#careBars');bars.replaceChildren();
+    const info=[];
+    for(const day of days){
+      const value=day[metric],amount=careStatsValue(metric,value);
+      const col=document.createElement('div');col.className='care-bar-day';
+      const valueNode=careLine(col,'span','care-bar-value',careStatsBarLabel(metric,value));
+      valueNode.title=amount;
+      const track=document.createElement('div');track.className='care-bar-track';
+      const bar=document.createElement('div');bar.className='care-bar-fill';
+      bar.style.height=max>0&&value>0?`${Math.max(3,value/max*100)}%`:'0%';
+      if(day===days[6])col.classList.add('today');
+      track.append(bar);col.append(track);
+      careLine(col,'span','care-bar-weekday',day.weekday);
+      careLine(col,'span','care-bar-date',day.label);
+      bars.append(col);
+      info.push(`${day.label} ${amount}`);
+    }
+    bars.setAttribute('aria-label',`${names[metric]} · ${info.join(', ')}`);
+    const oldest=careState.server[careState.server.length-1];
+    const possiblyTruncated=careState.server.length>=500&&(!oldest||Date.parse(oldest.start)>=week.start);
+    const coverage=$('#careStatsCoverage');
+    if(!careState.loaded){coverage.textContent='Google Sheets에서 기록을 불러오는 중이에요.';coverage.classList.remove('caution');}
+    else if(possiblyTruncated){coverage.textContent='최근 500건까지만 불러와 일부 날짜의 통계가 누락되었을 수 있습니다. 더 오래된 기록은 Google Sheets에서 확인하세요.';coverage.classList.add('caution');}
+    else {coverage.textContent='최근 7일(오늘 포함) 기준 · 오늘은 현재 시각까지의 기록입니다. 자정을 넘긴 수면은 각 날짜에 나누어 계산합니다.';coverage.classList.remove('caution');}
+    if(careState.queue.length)coverage.textContent+=` · 저장 확인 중 ${careState.queue.length}건을 포함합니다.`;
+    else if(!state.connected)coverage.textContent+=' · 기기 캐시 기준이며 최신 데이터가 아닐 수 있습니다.';
+  }
   function careLine(parent,tag,cls,text){const el=document.createElement(tag);if(cls)el.className=cls;el.textContent=String(text);parent.append(el);return el;}
   function renderCare(){
     const connected=careAllowed();
@@ -1655,6 +1788,13 @@
     $('#careRetryBtn').disabled=!state.connected||careState.busy;
     $('#careRefreshBtn').disabled=!state.connected||careState.loading||careState.busy;
     if(!connected)return;
+    $('#careRecordPane').hidden=careMode!=='record';
+    $('#careStatsPane').hidden=careMode!=='stats';
+    $('#careModeRecord').classList.toggle('active',careMode==='record');
+    $('#careModeRecord').setAttribute('aria-pressed',String(careMode==='record'));
+    $('#careModeStats').classList.toggle('active',careMode==='stats');
+    $('#careModeStats').setAttribute('aria-pressed',String(careMode==='stats'));
+    renderCareAnalytics();
     const stat=careStatToday();
     $('#careStatFeed').textContent=`${stat.feed}회`;
     $('#careStatMilk').textContent=`분유 ${stat.ml}ml`;
@@ -1727,6 +1867,11 @@
   }
   function careAttach(){
     $('#careGoSettingsBtn').addEventListener('click',()=>setTab('settings'));
+    $('#careModeRecord').addEventListener('click',()=>{careMode='record';renderCare();});
+    $('#careModeStats').addEventListener('click',()=>{careMode='stats';renderCare();});
+    for(const button of document.querySelectorAll('[data-care-metric]')){
+      button.addEventListener('click',()=>{careStatsMetric=button.dataset.careMetric;renderCareAnalytics();});
+    }
     $('#caregiverSelect').addEventListener('change',()=>{try{localStorage.setItem(caregiverKey,$('#caregiverSelect').value);}catch(e){}});
     $('#careFormulaAmount').addEventListener('change',()=>{try{localStorage.setItem(amountKey,$('#careFormulaAmount').value);}catch(e){}});
     $('#careFormulaBtn').addEventListener('click',()=>careQuick('feed','formula',Number($('#careFormulaAmount').value)));

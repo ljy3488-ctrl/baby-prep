@@ -18,9 +18,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=28">
+  <link rel="stylesheet" href="style.css?v=29">
   <script src="config.js" defer></script>
-  <script src="app.js?v=28" defer></script>
+  <script src="app.js?v=29" defer></script>
 </head>
 <body>
 <main class="wrap">
@@ -229,6 +229,11 @@
       <div class="care-sync-row" role="status" aria-live="polite"><span id="careSyncStatus">최신 기록 확인 중…</span>
         <div class="care-sync-actions"><button type="button" id="careRetryBtn" hidden>↻ 다시 저장</button><button type="button" id="careDiscardBtn" hidden>대기 기록 취소</button><button type="button" id="careRefreshBtn">↻ 새로고침</button></div>
       </div>
+      <div class="care-mode-switch" role="group" aria-label="육아 기록 화면 선택">
+        <button type="button" id="careModeRecord" class="active" aria-pressed="true">✎ 기록하기</button>
+        <button type="button" id="careModeStats" aria-pressed="false">▥ 육아 통계</button>
+      </div>
+      <div id="careRecordPane">
       <section class="care-today-card"><div class="care-section-title"><h3>오늘의 토리</h3><span>실시간 기록</span></div>
         <div class="care-today-grid"><div><span>🍼 수유</span><strong id="careStatFeed">0회</strong><small id="careStatMilk">분유 0ml</small></div>
           <div><span>🧷 기저귀</span><strong id="careStatDiaper">0회</strong><small>소변·대변 합계</small></div>
@@ -249,6 +254,40 @@
       <section class="care-panel care-history"><div class="care-section-title"><h3>최근 육아 기록</h3><button id="careManualBtn" type="button">＋ 직접 입력</button></div><div id="careRecentList" class="care-recent"></div>
         <p class="care-footnote">최근 최대 500건을 동기화합니다. 오래된 기록은 Google Sheets '육아기록' 시트에 계속 보관됩니다. 다른 기기의 변경은 새로고침 또는 앱 복귀 시 반영됩니다.</p>
       </section>
+      </div><!-- careRecordPane -->
+      <div id="careStatsPane" hidden>
+        <section class="care-panel care-analytics">
+          <div class="care-section-title"><h3>최근 7일 육아 통계</h3><span id="careStatsWindow">오늘 포함 7일</span></div>
+          <p class="care-analytics-intro">우리 가족의 수유·기저귀·수면 기록을 날짜별로 모았어요.</p>
+          <div class="care-analytics-grid" aria-label="최근 7일 주요 지표">
+            <div class="care-analytics-kpi"><span>🍼 분유 총량</span><strong id="careWeekMilk">0ml</strong><small id="careWeekMilkSub">하루 평균 0ml</small></div>
+            <div class="care-analytics-kpi"><span>♡ 수유 횟수</span><strong id="careWeekFeed">0회</strong><small id="careWeekFeedSub">하루 평균 0.0회</small></div>
+            <div class="care-analytics-kpi"><span>🧷 기저귀 교체</span><strong id="careWeekDiaper">0회</strong><small id="careWeekDiaperSub">하루 평균 0.0회</small></div>
+            <div class="care-analytics-kpi"><span>🌙 수면 합계</span><strong id="careWeekSleep">0시간</strong><small id="careWeekSleepSub">하루 평균 0시간</small></div>
+          </div>
+          <div class="care-chart-head"><h4>일별 변화</h4><span>그래프 항목을 선택하세요</span></div>
+          <div class="care-metric-picker" role="group" aria-label="육아 통계 그래프 항목">
+            <button type="button" data-care-metric="milk" aria-pressed="true" class="active">분유량</button>
+            <button type="button" data-care-metric="feed" aria-pressed="false">수유</button>
+            <button type="button" data-care-metric="diaper" aria-pressed="false">기저귀</button>
+            <button type="button" data-care-metric="sleep" aria-pressed="false">수면</button>
+          </div>
+          <div class="care-chart-summary"><strong id="careChartTotal">최근 7일 0ml</strong><span id="careChartAverage">하루 평균 0ml</span></div>
+          <div class="care-bars" id="careBars" role="img" aria-label="최근 7일 육아 통계 막대그래프"></div>
+          <div class="care-chart-legend"><span class="care-legend-dot" aria-hidden="true"></span><span id="careChartLegend">분유량 (ml)</span><small>오늘은 현재까지의 기록</small></div>
+        </section>
+        <section class="care-panel care-analytics-details">
+          <div class="care-section-title"><h3>기록 상세 요약</h3><span>최근 7일</span></div>
+          <div class="care-breakdown-grid">
+            <div><span>분유 수유 횟수</span><strong id="careWeekFormulaCount">0회</strong></div>
+            <div><span>1회 평균 분유량</span><strong id="careWeekBottleAverage">0ml</strong></div>
+            <div><span>모유 기록</span><strong id="careWeekBreastCount">0회</strong></div>
+            <div><span>소변 / 대변 / 둘 다</span><strong id="careWeekDiaperKinds">0 / 0 / 0</strong></div>
+          </div>
+          <p class="care-analytics-note" id="careStatsCoverage">기록을 불러오면 통계가 표시됩니다.</p>
+          <p class="care-footnote">통계는 육아 기록용 참고 자료이며, 적정 수유량·수면시간 등을 의학적으로 판단하지 않습니다. 분유량은 입력된 분유 기록만 합산하고 모유는 수유 횟수에 포함합니다.</p>
+        </section>
+      </div><!-- careStatsPane -->
     </div>
   </section>
 

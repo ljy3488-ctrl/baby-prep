@@ -667,3 +667,45 @@ footer,.group-hint{color:#747980!important;}
 @media(max-width:390px){.care-panel,.care-today-card{padding:14px 11px}.care-action-grid.three{gap:5px}.care-action-btn{font-size:11px;padding:8px 4px;min-height:50px}.care-today-grid{gap:5px}.care-today-grid>div{padding:10px 6px}.care-today-grid strong{font-size:17px}}
 
 #careDiscardBtn{color:#A65E56;background:#FFF4F2;border-color:#F2D8D4;}
+
+/* BabyPrep v29 — read-only newborn-care statistics inside the existing 육아 tab. */
+#careRecordPane[hidden],#careStatsPane[hidden]{display:none!important;}
+.care-mode-switch{display:grid;grid-template-columns:1fr 1fr;gap:5px;padding:5px;margin:0 0 12px;background:#F0EEED;border:1px solid #E9E6E4;border-radius:14px;}
+.care-mode-switch button{font:inherit;font-size:13px;font-weight:800;color:#77747A;border:0;border-radius:10px;background:transparent;min-height:42px;padding:8px 6px;cursor:pointer;}
+.care-mode-switch button.active{background:#FFFFFF;box-shadow:0 2px 9px rgba(35,35,35,.06);color:#AC6A56;}
+.care-mode-switch button:focus-visible{outline:2px solid #C9826D;outline-offset:2px;}
+.care-analytics-intro{margin:-5px 0 15px;font-size:11px;line-height:1.6;color:#878187;}
+.care-analytics-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;}
+.care-analytics-kpi{background:#FBF9F8;border:1px solid #F0ECE9;border-radius:14px;padding:13px 11px;display:flex;flex-direction:column;gap:6px;min-width:0;}
+.care-analytics-kpi>span{font-size:11px;font-weight:750;color:#777279;}
+.care-analytics-kpi>strong{font-size:21px;font-weight:850;letter-spacing:-.5px;color:#35373D!important;line-height:1.3;overflow-wrap:anywhere;}
+.care-analytics-kpi>small{font-size:10px;color:#929094;}
+.care-chart-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-top:24px;margin-bottom:9px;}
+.care-chart-head h4{font-size:15px;font-weight:800;color:#424045;margin:0;}
+.care-chart-head span{font-size:10px;color:#999399;}
+.care-metric-picker{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;}
+.care-metric-picker button{font:inherit;border:1px solid #EEE9E6;background:#F9F8F7;border-radius:10px;color:#79747B;font-size:11px;font-weight:800;min-height:36px;padding:7px 3px;cursor:pointer;}
+.care-metric-picker button.active{background:#FCEAE3;border-color:#EDC9BA;color:#AE6854;}
+.care-metric-picker button:focus-visible{outline:2px solid #C9826D;outline-offset:2px;}
+.care-chart-summary{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:15px 0 2px;}
+.care-chart-summary strong{font-size:15px;color:#4B4142;}
+.care-chart-summary span{font-size:11px;color:#8B8589;}
+.care-bars{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:7px;margin-top:7px;min-height:176px;}
+.care-bar-day{min-width:0;display:flex;flex-direction:column;align-items:center;gap:5px;}
+.care-bar-value{font-size:9px;color:#8C8385;white-space:nowrap;letter-spacing:-.3px;line-height:1.5;height:14px;}
+.care-bar-track{height:112px;width:100%;display:flex;align-items:flex-end;justify-content:center;border-bottom:1px solid #E6E2E0;}
+.care-bar-fill{width:100%;max-width:29px;min-width:8px;min-height:0;background:linear-gradient(180deg,#EAB3A0,#D58D78);border-radius:7px 7px 2px 2px;transition:height .22s ease;}
+.care-bar-day.today .care-bar-fill{background:linear-gradient(180deg,#D99C84,#C9775F);}
+.care-bar-weekday{font-size:10px;font-weight:800;color:#585358;}
+.care-bar-date{font-size:10px;color:#999298;white-space:nowrap;}
+.care-bar-day.today .care-bar-weekday{color:#B56A55;}
+.care-chart-legend{display:flex;align-items:center;gap:6px;font-size:10px;color:#837B7B;margin-top:9px;flex-wrap:wrap;}
+.care-legend-dot{width:8px;height:8px;border-radius:3px;background:#D7917C;flex:none;}
+.care-chart-legend small{margin-left:auto;color:#A19A9D;font-size:10px;}
+.care-breakdown-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
+.care-breakdown-grid>div{display:grid;gap:5px;padding:12px;border-radius:12px;border:1px solid #F0ECE9;background:#FBFAF9;min-width:0;}
+.care-breakdown-grid span{font-size:11px;color:#8F888D;}
+.care-breakdown-grid strong{font-size:15px;color:#51484A!important;overflow-wrap:anywhere;}
+.care-analytics-note{background:#F9F7F6;border-radius:12px;font-size:11px;line-height:1.65;color:#7E777C;padding:11px;margin:14px 0 0;}
+.care-analytics-note.caution{background:#FFF5E9;color:#936534;}
+@media(max-width:390px){.care-analytics-grid{gap:7px}.care-analytics-kpi{padding:11px 9px}.care-analytics-kpi>strong{font-size:18px}.care-bars{gap:3px}.care-bar-value{font-size:8px}.care-bar-date{font-size:9px}.care-metric-picker{gap:3px}.care-metric-picker button{font-size:10px}.care-chart-legend small{width:100%;margin-left:14px}}
