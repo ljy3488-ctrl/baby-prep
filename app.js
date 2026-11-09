@@ -2348,13 +2348,14 @@
     files.forEach(p=>grid.append(photoThumb(p,moment)));
     const persisted=growthState.serverMoments.some(m=>m.id===photoState.activeMomentId);
     const pending=growthState.queue.some(j=>j.id===photoState.activeMomentId);
+    const preserveDetailedError=/^(업로드 중단:|성장일기 저장 확인 실패:)/.test($('#growthPhotoError').textContent);
     // Upload stays tappable so network/setup failures can be explained instead
     // of appearing as an unresponsive gray button.
     $('#growthPhotoUpload').disabled=photoState.busy||files.length>=5;
     if(files.length>=5)$('#growthPhotoFileCount').textContent='사진 5장이 등록돼 있어요. 다른 사진을 추가하려면 기존 사진을 삭제하세요.';
     else if(!state.connected)photoModalError('Google Sheets 연결이 끊겼습니다. 설정에서 연결을 확인하고 다시 시도하세요.');
-    else if(!persisted&&pending)photoModalError('성장일기를 Google Sheets에 저장 중입니다. 먼저 성장 기록의 ‘재시도’를 눌러 저장을 완료해 주세요.');
-    else if(!persisted)photoModalError('성장일기가 서버에 없습니다. 육아 → 성장 기록에서 새로고침을 눌러 주세요.');
+    else if(!persisted&&pending&&!preserveDetailedError)photoModalError('성장일기의 저장 확인이 아직 끝나지 않았습니다. 사진을 선택하고 업로드하면 Google Sheets의 최신 기록을 직접 확인합니다.');
+    else if(!persisted&&!preserveDetailedError)photoModalError('앱의 성장일기 저장 상태가 최신이 아닐 수 있습니다. 사진 업로드 시 Google Sheets를 다시 확인합니다.');
     else if(!photoState.loaded){
       if(!$('#growthPhotoError').textContent.startsWith('사진 연결 오류:')&&!$('#growthPhotoError').textContent.startsWith('사진 서버 연결 실패:'))
         photoModalError('사진 목록 연결 확인 중입니다. ‘선택한 사진 업로드’를 누르면 연결 상태를 다시 확인합니다.');
@@ -2395,25 +2396,45 @@
     }
     throw lastError||new Error('사진 저장 확인이 지연되고 있습니다. 새로고침 후 확인하세요.');
   }
+  // v31.2: The on-device serverMoments snapshot may lag a successful Sheets
+  // write (e.g., opaque POST completed but its follow-up read timed out).
+  // A missing ID in that snapshot is NOT proof that the diary is unsaved.
+  // Re-check the authoritative signed growthList before blocking photo upload.
+  async function photoEnsureSavedMoment(momentId){
+    if(growthState.serverMoments.some(r=>r.id===momentId))return true;
+    const data=await growthRead();
+    // Keep the user's pending edits layered above the verified server data.
+    growthApplyServer(data);
+    return data.moments.some(r=>r.id===momentId);
+  }
   async function photoUpload(){
     if(photoState.busy)return;
     const momentId=photoState.activeMomentId;
     const chosen=[...$('#growthPhotoFiles').files];
     if(!chosen.length){photoModalError('업로드할 사진을 선택해 주세요.');return;}
     if(!state.connected){photoModalError('Google Sheets 연결을 먼저 확인해 주세요. 설정에서 다시 연결할 수 있습니다.');return;}
-    if(!growthState.serverMoments.some(r=>r.id===momentId)){
-      if(growthState.queue.some(j=>j.id===momentId)&&!growthState.busy)void growthDrain();
-      photoModalError('성장 순간이 아직 서버에 저장되지 않았습니다. 상단 성장 기록의 저장 상태를 확인한 뒤 다시 눌러 주세요.');return;
-    }
-    // On first visit or after a failed album sync, fetch the authoritative
-    // photo list before enforcing the five-photo cap. Preserve selected files.
-    if(!photoState.loaded){
-      try{photoApply(await photoRead());photoModalError('');}
-      catch(e){photoModalError('사진 서버 연결 실패: '+e.message+' · Apps Script의 prepareBabyPrepV31 실행과 새 버전 배포를 확인하세요.');return;}
-    }
-    if(photoForMoment(momentId).length+chosen.length>5){photoModalError('성장일기 한 건당 사진은 최대 5장입니다.');return;}
+    // Mark busy BEFORE the network preflight so a double tap cannot submit
+    // two identical uploads while a stale diary is being reconciled.
     photoState.busy=true;photoModalError('');$('#growthPhotoUpload').disabled=true;
     try{
+      if(!growthState.serverMoments.some(r=>r.id===momentId)){
+        $('#growthPhotoFileCount').textContent='Google Sheets에 저장된 성장일기 확인 중…';
+        let confirmed;
+        try{confirmed=await photoEnsureSavedMoment(momentId);}
+        catch(e){throw new Error('성장일기 확인 요청에 실패했습니다: '+e.message+' · 성장 기록의 새로고침과 Apps Script 웹앱 배포를 확인해 주세요.');}
+        if(!confirmed){
+          if(growthState.queue.some(j=>j.id===momentId)&&!growthState.busy)void growthDrain();
+          throw new Error('Google Sheets에서 동일한 성장일기 ID를 찾지 못했습니다. 시트에 같은 제목이 있어도 A열 ID가 다르면 다른 기록입니다. 성장 기록의 저장 상태와 A열 ID를 확인해 주세요.');
+        }
+      }
+      // On first visit or after a failed album sync, fetch the authoritative
+      // photo list before enforcing the five-photo cap.
+      if(!photoState.loaded){
+        let list;
+        try{list=await photoRead();}catch(e){throw new Error('사진 서버 연결 실패: '+e.message+' · prepareBabyPrepV31 실행 및 Apps Script 새 버전 배포를 확인해 주세요.');}
+        photoApply(list);
+      }
+      if(photoForMoment(momentId).length+chosen.length>5)throw new Error('성장일기 한 건당 사진은 최대 5장입니다.');
       for(let i=0;i<chosen.length;i++){
         $('#growthPhotoFileCount').textContent=`${i+1}/${chosen.length} · 사진 변환·업로드 중…`;
         const base64=await photoJpeg(chosen[i]),id=photoNewId();
@@ -2424,8 +2445,10 @@
       $('#growthPhotoFiles').value='';
       $('#growthPhotoFileCount').textContent=`선택한 ${chosen.length}장 업로드 완료 · 다른 기기에서도 확인할 수 있어요.`;
       photoStatus('사진 업로드 완료 · 두 기기에 공유됩니다.');
-    }catch(e){photoModalError('업로드 실패 또는 저장 확인 지연: '+e.message+' · 사진이 중복될 수 있으니 앨범을 새로고침하고 확인하세요. Apps Script v31 배포·Google Drive 권한도 확인해 주세요.');}
-    finally{photoState.busy=false;photoRenderEditor();}
+    }catch(e){
+      photoModalError('업로드 중단: '+e.message+' · 재시도 전에 앨범에서 사진 등록 여부를 확인해 주세요.');
+      if($('#growthPhotoFiles').files.length)$('#growthPhotoFileCount').textContent=`${$('#growthPhotoFiles').files.length}장 선택됨 · 오류를 확인해 주세요.`;
+    }finally{photoState.busy=false;photoRenderEditor();}
   }
   async function photoOpenViewer(id){
     const photo=photoState.photos.find(p=>p.id===id);if(!photo)return;
@@ -2458,9 +2481,18 @@
     $('#growthPhotoFiles').addEventListener('change',e=>{const files=[...e.target.files];$('#growthPhotoFileCount').textContent=files.length?`${files.length}장 선택됨 · 사진은 업로드 전에 자동 압축됩니다.`:'사진을 선택해 주세요.';});
     $('#growthPhotoForm').addEventListener('submit',e=>{e.preventDefault();void photoUpload();});
     $('#growthPhotoRetry').addEventListener('click',async()=>{
+      if(photoState.busy)return;
       photoModalError('연결 및 저장 상태 확인 중…');
-      if(growthState.queue.length&&!growthState.busy)await growthDrain();
-      if(state.connected){await growthRefresh();await photoRefresh();}
+      if(state.connected){
+        // Do not depend on growthRefresh(), which returns early while another
+        // growth save/read is in progress. Verify this exact diary directly.
+        try{
+          const present=await photoEnsureSavedMoment(photoState.activeMomentId);
+          if(!present)photoModalError('Google Sheets에서 동일한 성장일기 ID를 찾지 못했습니다. 성장일기 A열 ID와 저장 상태를 확인해 주세요.');
+          else photoModalError('');
+        }catch(e){photoModalError('성장일기 저장 확인 실패: '+e.message);}
+        if(!photoState.loaded)await photoRefresh();
+      }
       if($('#growthPhotoEditor').open)photoRenderEditor();
     });
     $('#growthPhotoViewerClose').addEventListener('click',()=>$('#growthPhotoViewer').close());
