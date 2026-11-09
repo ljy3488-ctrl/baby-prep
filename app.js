@@ -1481,6 +1481,8 @@
   const careState={server:[],events:[],queue:[],loaded:false,loading:false,busy:false,failed:false,lastSync:0,revision:0,fetchSeq:0,editingId:null};
   let careMode='record';
   let careStatsMetric='milk';
+  let careClockDay=(()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;})();
+  const careClockFilters=new Set(['feed','diaper','sleep']);
   function careAllowed(){return !!state.secret && (state.connected||state.cached);}
   function careId(){return 'CARE-'+Array.from(crypto.getRandomValues(new Uint8Array(8)),b=>b.toString(16).padStart(2,'0')).join('').toUpperCase();}
   function careIso(value){const d=new Date(value);return Number.isFinite(d.getTime())?d.toISOString():'';}
@@ -1781,6 +1783,81 @@
     if(careState.queue.length)coverage.textContent+=` · 저장 확인 중 ${careState.queue.length}건을 포함합니다.`;
     else if(!state.connected)coverage.textContent+=' · 기기 캐시 기준이며 최신 데이터가 아닐 수 있습니다.';
   }
+
+  // v32: Single-ring clock; 0h at top, clockwise through 24h.
+  // Uses local calendar day boundaries to handle DST and overnight sleep.
+  function careClockDraw(){
+    const svg=$('#careClockSvg');if(!svg||$('#careStatsPane').hidden)return;
+    const ns='http://www.w3.org/2000/svg';svg.replaceChildren();
+    const make=(tag,attrs={},label='',parent=svg)=>{const e=document.createElementNS(ns,tag);for(const [k,v] of Object.entries(attrs))e.setAttribute(k,String(v));if(label)e.textContent=label;parent.append(e);return e;};
+    const date=parseLocalDate(careClockDay)||new Date();
+    const start=new Date(date.getFullYear(),date.getMonth(),date.getDate()).getTime();
+    const end=new Date(date.getFullYear(),date.getMonth(),date.getDate()+1).getTime();
+    const duration=end-start,now=Date.now(),center=180,radius=128;
+    const at=(ratio,r=radius)=>{const a=ratio*2*Math.PI;return [center+r*Math.sin(a),center-r*Math.cos(a)];};
+    const path=(a,b,r=radius)=>{const p=at(a,r),q=at(b,r);return `M ${p[0].toFixed(3)} ${p[1].toFixed(3)} A ${r} ${r} 0 ${b-a>0.5?1:0} 1 ${q[0].toFixed(3)} ${q[1].toFixed(3)}`;};
+    const strokes={feed:'#DB8D79',diaper:'#D4A24B',sleep:'#9294CB'};
+    make('circle',{cx:center,cy:center,r:radius,fill:'none',stroke:'#F0F0F2','stroke-width':32});
+    for(let h=0;h<24;h+=2){const [x,y]=at(h/24,165);make('text',{x,y:y+4,'text-anchor':'middle',fill:'#7C828B','font-size':12,'font-weight':h%6===0?700:400},String(h).padStart(2,'0'));}
+    const entries=[];let milk=0,diaper=0;const sleepRanges=[];
+    for(const e of careState.events){
+      const began=Date.parse(e.start);if(!Number.isFinite(began))continue;
+      if(e.type==='sleep'){
+        const ended=e.end?Date.parse(e.end):now;
+        if(!Number.isFinite(ended)||ended<=began)continue;
+        const from=Math.max(start,began),to=Math.min(end,ended,now);
+        if(to>from){sleepRanges.push([from,to]);entries.push({e,from,to,type:'sleep'});}
+      }else if(began>=start&&began<end&&began<=now){
+        if(e.type==='feed'&&e.detail==='formula')milk+=Number(e.amount)||0;
+        if(e.type==='diaper')diaper++;
+        entries.push({e,from:began,to:began,type:e.type});
+      }
+    }
+    sleepRanges.sort((a,b)=>a[0]-b[0]);let sleep=0,from=-1,to=-1;
+    for(const [a,b] of sleepRanges){if(from<0){from=a;to=b;}else if(a<=to)to=Math.max(to,b);else{sleep+=to-from;from=a;to=b;}}
+    if(from>=0)sleep+=to-from;
+    $('#careClockMilk').textContent=`${Math.round(milk).toLocaleString('ko-KR')}ml`;
+    $('#careClockDiaper').textContent=`${diaper}회`;
+    $('#careClockSleep').textContent=careMinutes(sleep);
+    const birth=growthBirth();const birthday=birth?.date||'2027-02-17';
+    const day=daysBetween(parseLocalDate(birthday),date);
+    $('#careClockDdayLabel').textContent=birth?'토리 탄생일 기준':'토리 탄생 예정일';
+    $('#careClockDday').textContent=day===0?'D-day':day>0?`D+${day}`:`D-${Math.abs(day)}`;
+    $('#careClockDdayDate').textContent=birthday.replaceAll('-','.');
+    // Sleep forms the base ring; feeding and diapers are short contrasting bars
+    // along the outer/inner edge so simultaneous activities stay distinguishable.
+    const order={sleep:0,feed:1,diaper:2};entries.sort((a,b)=>order[a.type]-order[b.type]||a.from-b.from);
+    for(const entry of entries){
+      if(!careClockFilters.has(entry.type))continue;
+      const {e,type}=entry;let a=(entry.from-start)/duration,b=(entry.to-start)/duration;
+      if(type!=='sleep'){const width=8*60000/duration;a=Math.max(0,a-width/2);b=Math.min(1,Math.max(a+0.002,a+width));}
+      const rad=type==='sleep'?128:type==='feed'?142:114;
+      const width=type==='sleep'?29:12;
+      // Split at 12 hours to avoid SVG full-circle arc ambiguity.
+      const group=make('g',{'class':'care-clock-mark',tabindex:0,role:'button','aria-label':`${careTime(e.start)} ${careTitle(e)} 상세 보기`});
+      for(let pos=a;pos<b-0.00001;){const next=Math.min(b,pos+0.48);make('path',{d:path(pos,next,rad),fill:'none',stroke:strokes[type],'stroke-width':width,'stroke-linecap':type==='sleep'?'butt':'round'},'',group);pos=next;}
+      const show=()=>{const lines=[`${careTime(e.start)} · ${careIcon(e)} ${careTitle(e)}`];if(type==='sleep')lines.push(`${careTime(e.start)} ~ ${e.end?careTime(e.end):'진행 중'} · ${careMinutes(entry.to-entry.from)} (선택 날짜에 해당하는 시간)`);if(e.caregiver)lines.push(`기록자: ${e.caregiver}`);if(e.note)lines.push(e.note);$('#careClockDetails').textContent=lines.join(' / ');};
+      group.addEventListener('click',show);group.addEventListener('keydown',ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();show();}});
+    }
+    const input=$('#careClockDate');if(input.value!==careClockDay)input.value=careClockDay;
+    $('#careClockNext').disabled=careClockDay>=(()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;})();
+    const note=$('#careClockCoverage');
+    if(!careState.loaded)note.textContent='육아 기록을 불러오는 중이에요.';
+    else if(careState.server.length>=500)note.textContent='최근 최대 500건으로 표시합니다. 오래된 날짜는 일부 기록이 누락될 수 있어요.';
+    else note.textContent='기록을 수정하거나 추가하면 일과표도 자동 갱신됩니다.';
+    const count=entries.filter(x=>careClockFilters.has(x.type)).length;
+    if(!count)$('#careClockDetails').textContent='이 날짜에는 표시할 육아 기록이 없어요.';
+    else if($('#careClockDetails').textContent.includes('기록이 없어요.'))$('#careClockDetails').textContent='색 막대를 누르면 해당 시간의 기록이 표시됩니다.';
+  }
+  function careClockAttach(){
+    const setDay=(d)=>{const today=new Date(),now=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;careClockDay=d>now?now:d;$('#careClockDetails').textContent='색 막대를 누르면 상세 기록이 표시됩니다.';careClockDraw();};
+    $('#careClockPrev').addEventListener('click',()=>{const d=parseLocalDate(careClockDay);d.setDate(d.getDate()-1);setDay(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);});
+    $('#careClockNext').addEventListener('click',()=>{const d=parseLocalDate(careClockDay);d.setDate(d.getDate()+1);setDay(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);});
+    $('#careClockToday').addEventListener('click',()=>setDay((()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;})()));
+    $('#careClockDate').addEventListener('change',e=>{if(/^\d{4}-\d{2}-\d{2}$/.test(e.target.value))setDay(e.target.value);});
+    document.querySelectorAll('[data-clock-type]').forEach(b=>b.addEventListener('click',()=>{const type=b.dataset.clockType;if(careClockFilters.has(type))careClockFilters.delete(type);else careClockFilters.add(type);b.setAttribute('aria-pressed',String(careClockFilters.has(type)));careClockDraw();}));
+  }
+
   function careLine(parent,tag,cls,text){const el=document.createElement(tag);if(cls)el.className=cls;el.textContent=String(text);parent.append(el);return el;}
   function renderCare(){
     const connected=careAllowed();
@@ -1804,6 +1881,7 @@
     $('#careModeGrowth').classList.toggle('active',careMode==='growth');
     $('#careModeGrowth').setAttribute('aria-pressed',String(careMode==='growth'));
     renderCareAnalytics();
+    careClockDraw();
     if(careMode==='growth')renderGrowth();
     const stat=careStatToday();
     $('#careStatFeed').textContent=`${stat.feed}회`;
@@ -1876,6 +1954,7 @@
     else error('저장 대기 상태를 확인한 후 다시 시도해 주세요.');
   }
   function careAttach(){
+    careClockAttach();
     $('#careGoSettingsBtn').addEventListener('click',()=>setTab('settings'));
     $('#careModeRecord').addEventListener('click',()=>{careMode='record';renderCare();});
     $('#careModeStats').addEventListener('click',()=>{careMode='stats';renderCare();});

@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=31.2">
+  <link rel="stylesheet" href="style.css?v=32">
   <script src="config.js" defer></script>
   <script src="app.js?v=31.4" defer></script>
 </head>
@@ -257,6 +257,17 @@
       </section>
       </div><!-- careRecordPane -->
       <div id="careStatsPane" hidden>
+
+        <section class="care-panel care-clock-panel" aria-label="24시간 원형 육아 일과표">
+          <div class="care-section-title"><h3>토리의 하루 · 24시간 일과표</h3><span>시간별 활동</span></div>
+          <div class="care-clock-date"><button type="button" id="careClockPrev" aria-label="이전 날짜">‹</button><label><span>기록 날짜</span><input type="date" id="careClockDate"></label><button type="button" id="careClockNext" aria-label="다음 날짜">›</button><button type="button" id="careClockToday">오늘</button></div>
+          <div class="care-clock-filters" role="group" aria-label="표시할 육아 기록"><button type="button" data-clock-type="feed" aria-pressed="true"><i class="clock-color feed"></i>🍼 수유</button><button type="button" data-clock-type="diaper" aria-pressed="true"><i class="clock-color diaper"></i>🧷 기저귀</button><button type="button" data-clock-type="sleep" aria-pressed="true"><i class="clock-color sleep"></i>🌙 수면</button></div>
+          <div class="care-clock-wrap"><svg id="careClockSvg" viewBox="0 0 360 360" role="img" aria-label="0시부터 24시까지의 육아 기록을 원형으로 표시"></svg><div class="care-clock-center"><span id="careClockDdayLabel">토리 탄생 예정일</span><strong id="careClockDday">D-day</strong><small id="careClockDdayDate">2027.02.17</small></div></div>
+          <p class="care-clock-hint">보라색은 수면 시간, 살구색은 수유, 노란색은 기저귀예요. 원형의 색 막대를 누르면 상세 기록을 볼 수 있어요.</p>
+          <div class="care-clock-summary"><div><span>🍼 분유량</span><strong id="careClockMilk">0ml</strong></div><div><span>🧷 기저귀</span><strong id="careClockDiaper">0회</strong></div><div><span>🌙 수면</span><strong id="careClockSleep">0분</strong></div></div>
+          <div id="careClockDetails" class="care-clock-details" aria-live="polite">시간 막대를 선택하면 기록이 표시됩니다.</div>
+          <p id="careClockCoverage" class="care-footnote"></p>
+        </section>
         <section class="care-panel care-analytics">
           <div class="care-section-title"><h3>최근 7일 육아 통계</h3><span id="careStatsWindow">오늘 포함 7일</span></div>
           <p class="care-analytics-intro">우리 가족의 수유·기저귀·수면 기록을 날짜별로 모았어요.</p>
