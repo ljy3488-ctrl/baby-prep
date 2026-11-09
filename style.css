@@ -709,3 +709,50 @@ footer,.group-hint{color:#747980!important;}
 .care-analytics-note{background:#F9F7F6;border-radius:12px;font-size:11px;line-height:1.65;color:#7E777C;padding:11px;margin:14px 0 0;}
 .care-analytics-note.caution{background:#FFF5E9;color:#936534;}
 @media(max-width:390px){.care-analytics-grid{gap:7px}.care-analytics-kpi{padding:11px 9px}.care-analytics-kpi>strong{font-size:18px}.care-bars{gap:3px}.care-bar-value{font-size:8px}.care-bar-date{font-size:9px}.care-metric-picker{gap:3px}.care-metric-picker button{font-size:10px}.care-chart-legend small{width:100%;margin-left:14px}}
+
+/* BabyPrep v30: growth diary, nested within the existing baby-care menu. */
+#careGrowthPane[hidden]{display:none!important}
+.care-mode-switch{grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}
+.care-mode-switch button{font-size:12px;padding:8px 2px}
+.growth-hero{border:1px solid #F0E8E4;background:#FFF;border-radius:18px;padding:17px 15px;margin-bottom:12px;box-shadow:0 6px 24px rgba(62,56,52,.035)}
+.growth-birth-line{margin-top:10px;display:flex;align-items:center;justify-content:space-between;gap:8px;background:#FAF7F5;padding:13px;border-radius:13px}
+.growth-birth-line>div{display:grid;gap:5px;min-width:0}
+.growth-birth-line strong:not(.growth-day-count){font-size:13px;color:#35373B}
+.growth-muted{font-size:11px;color:#827D7A}
+.growth-day-count{white-space:nowrap;color:#B46B59!important;font-size:16px}
+.growth-hint{font-size:11px;color:#858087;line-height:1.65;margin:9px 0}
+.growth-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:11px}
+.growth-actions button{border:1px solid #DFAE9C;background:#FBEDE7;color:#A65B47;border-radius:12px;font:inherit;font-weight:800;font-size:13px;min-height:44px;cursor:pointer}
+.growth-actions button:last-child{background:#FFF;border-color:#E7E1DE;color:#5B5352}
+.growth-sync-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:2px 4px 12px;color:#858086;font-size:11px}
+.growth-sync-row span{flex:1;min-width:0;line-height:1.5}.growth-sync-row span.growth-warning{color:#A14E42}
+.growth-sync-row>div{display:flex;gap:5px;flex-shrink:0}
+.growth-sync-row button,.growth-small-add{font:inherit;border:1px solid #ECE5E1;background:#FFF;color:#8C665B;font-size:11px;font-weight:750;border-radius:9px;padding:7px 9px;cursor:pointer}
+.growth-stat-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin:12px 0 17px}
+.growth-stat-grid>div{background:#FAF8F7;border:1px solid #F1ECEA;border-radius:13px;padding:12px 6px;text-align:center;min-width:0;display:grid;gap:3px}
+.growth-stat-grid span,.growth-stat-grid small{font-size:10px;color:#817D7D}
+.growth-stat-grid strong{font-size:20px!important;color:#37383B!important;line-height:1.3;overflow-wrap:anywhere}
+.growth-graph-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.growth-graph-head h4{font-size:14px;margin:0;color:#383A40}.growth-graph-head span{font-size:10px;color:#8D8886}
+.growth-metric-picker{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin-bottom:9px}
+.growth-metric-picker button{min-height:36px;border-radius:10px;border:1px solid #EDEAE8;background:#F8F7F7;color:#77737A;font:inherit;font-size:12px;font-weight:750;cursor:pointer}
+.growth-metric-picker button.active{background:#FDECE6;border-color:#E5BAA9;color:#AF6751}
+.growth-graph{width:100%;min-height:165px;background:#FCFBFA;border:1px solid #F1EEEC;border-radius:13px;padding:9px 5px;display:flex;align-items:center;justify-content:center}
+.growth-graph svg{width:100%;height:164px;display:block;overflow:visible}
+.growth-graph p{text-align:center;font-size:12px;color:#989195;padding:25px 8px;line-height:1.6}
+.growth-history-list{display:grid;gap:9px;margin-top:10px}
+.growth-history-item{border:1px solid #F0ECE9;background:#FDFCFB;border-radius:13px;padding:11px;display:flex;align-items:flex-start;gap:9px}
+.growth-history-mark{background:#F8EAE5;color:#B9735C;width:34px;height:34px;min-width:34px;display:grid;place-items:center;border-radius:10px;font-size:16px}
+.growth-history-content{flex:1;min-width:0;display:grid;gap:4px}
+.growth-history-content strong{font-size:13px;color:#383A3C!important;line-height:1.4;overflow-wrap:anywhere}
+.growth-history-content span{font-size:11px;color:#8C8785;overflow-wrap:anywhere}
+.growth-history-content p{font-size:12px;color:#625F63;margin:1px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5}
+.growth-history-item button{border:1px solid #ECE9E7;background:#FFF;border-radius:8px;padding:7px 8px;color:#796F71;font:inherit;font-size:11px;cursor:pointer}
+.growth-empty{color:#958F90;font-size:12px;text-align:center;background:#FBFAF9;border-radius:11px;line-height:1.6;padding:24px 10px;margin:0}
+.growth-edit-two{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+#growthMeasureEditor label,#growthMomentEditor label{display:grid;gap:7px;margin:13px 0;font-weight:750;font-size:13px}
+#growthMeasureEditor input,#growthMeasureEditor textarea,#growthMomentEditor input,#growthMomentEditor select,#growthMomentEditor textarea{width:100%;font-size:15px;min-height:42px}
+#growthMeasureEditor .primary,#growthMomentEditor .primary{width:100%;margin-top:12px}
+#growthMeasureEditor .outline-danger,#growthMomentEditor .outline-danger{width:100%;margin-top:10px}
+.growth-error{color:#A53E37;background:#FFF0EC;padding:10px;border-radius:10px;font-size:12px}
+@media(max-width:380px){.care-mode-switch button{font-size:11px}.growth-hero{padding:14px 11px}.growth-stat-grid strong{font-size:17px!important}.growth-actions button{font-size:11px}.growth-sync-row{font-size:10px}}

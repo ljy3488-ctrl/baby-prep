@@ -63,7 +63,7 @@
     }
     document.body.dataset.view=view;
     if(view==='stats')renderStatistics();
-    if(view==='care'){renderCare();if(state.connected){if(careState.queue.length)void careDrain();else void careRefresh();}}
+    if(view==='care'){renderCare();if(state.connected){if(careState.queue.length)void careDrain();else void careRefresh();if(careMode==='growth'){if(growthState.queue.length)void growthDrain();else void growthRefresh();}}}
     if(view==='family'){
       // Whenever the user opens the family tab, start at the current local month/day.
       // Manual month navigation remains in place until they leave this tab.
@@ -91,7 +91,7 @@
       ? `연결됨 · 준비물 ${state.items.length}개 · 자동 연결 ${hasPersistent?'켜짐':'저장 불가(이 세션만)'}`
       : state.cached?'저장된 목록 표시 중 · Google Sheets 연결 확인 전에는 수정할 수 없습니다.'
       : hasSaved?'SECRET이 저장되어 있습니다. 자동 연결을 시도합니다.':'SECRET이 등록되지 않았습니다.';
-    $('#forgetSecretBtn').disabled=state.pendingChecks.size>0||state.pendingEdits.size>0||state.familyQueue.length>0||careState.queue.length>0||(!hasSaved&&!state.connected);
+    $('#forgetSecretBtn').disabled=state.pendingChecks.size>0||state.pendingEdits.size>0||state.familyQueue.length>0||careState.queue.length>0||growthState.queue.length>0||(!hasSaved&&!state.connected);
     $('#addItemBtn').disabled=!state.connected;
     $('#familyAddBtn').disabled=!state.connected;
     $('#familyAddOnDayBtn').disabled=!state.connected;
@@ -489,7 +489,7 @@
     $('#familyRetryBtn').hidden=!(state.familySyncFailed&&state.familyQueue.length);
     $('#familyRefreshBtn').disabled=state.familyLoading||state.familySyncBusy;
     const hasSaved=Boolean(safeRead(localStorage,storageKey)||safeRead(sessionStorage,oldSessionKey));
-    $('#forgetSecretBtn').disabled=state.pendingChecks.size>0||state.pendingEdits.size>0||state.familyQueue.length>0||careState.queue.length>0||(!hasSaved&&!state.connected);
+    $('#forgetSecretBtn').disabled=state.pendingChecks.size>0||state.pendingEdits.size>0||state.familyQueue.length>0||careState.queue.length>0||growthState.queue.length>0||(!hasSaved&&!state.connected);
   }
   function restoreFamilyJournal() {
     try {
@@ -1115,6 +1115,7 @@
       if(state.mutationQueue.length) void drainMutationQueue();
       if(state.familyQueue.length)void drainFamilyQueue();
       if(careState.queue.length)void careDrain();else void careRefresh();
+      if(growthState.queue.length)void growthDrain();else if(careMode==='growth')void growthRefresh();
       if(warmup) {
         // Attach immediately so a slow family GET cannot delay the first usable screen.
         void warmup.then(({events,error})=>{
@@ -1790,11 +1791,16 @@
     if(!connected)return;
     $('#careRecordPane').hidden=careMode!=='record';
     $('#careStatsPane').hidden=careMode!=='stats';
+    $('#careGrowthPane').hidden=careMode!=='growth';
+    $('#careSyncRow').hidden=careMode==='growth';
     $('#careModeRecord').classList.toggle('active',careMode==='record');
     $('#careModeRecord').setAttribute('aria-pressed',String(careMode==='record'));
     $('#careModeStats').classList.toggle('active',careMode==='stats');
     $('#careModeStats').setAttribute('aria-pressed',String(careMode==='stats'));
+    $('#careModeGrowth').classList.toggle('active',careMode==='growth');
+    $('#careModeGrowth').setAttribute('aria-pressed',String(careMode==='growth'));
     renderCareAnalytics();
+    if(careMode==='growth')renderGrowth();
     const stat=careStatToday();
     $('#careStatFeed').textContent=`${stat.feed}회`;
     $('#careStatMilk').textContent=`분유 ${stat.ml}ml`;
@@ -1902,6 +1908,294 @@
     window.setInterval(()=>{if(document.body.dataset.view==='care')renderCare();},60000);
   }
 
+
+  // BabyPrep v30: an independent, shared growth diary inside the existing care tab.
+  const growthCacheKey='bp-growth-cache-v30';
+  const growthJournalKey='bp-growth-pending-v30';
+  const growthMomentTypes=['탄생일','첫 미소','목 가누기','첫 옹알이','첫 뒤집기','혼자 앉기','첫니','첫걸음','100일','기타'];
+  const growthState={measurements:[],moments:[],serverMeasures:[],serverMoments:[],queue:[],loaded:false,loading:false,busy:false,failed:false,revision:0,seq:0,lastSync:0,metric:'weight',editingId:null,editingKind:null};
+  function growthNewId(kind){return (kind==='measure'?'GRM-':'GRJ-')+Array.from(crypto.getRandomValues(new Uint8Array(8)),b=>b.toString(16).padStart(2,'0')).join('').toUpperCase();}
+  function growthDay(value){return typeof value==='string'&&parseLocalDate(value)?value:'';}
+  function growthNum(v){if(v==null||v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null;}
+  function growthValid(kind,raw){
+    if(!raw||!(kind==='measure'?/^GRM-[A-F0-9]{16}$/:/^GRJ-[A-F0-9]{16}$/).test(String(raw.id||''))||!growthDay(raw.date))return null;
+    if(kind==='measure')return {id:raw.id,date:raw.date,weight:growthNum(raw.weight),height:growthNum(raw.height),head:growthNum(raw.head),note:String(raw.note||'')};
+    if(!growthMomentTypes.includes(String(raw.type||'')))return null;
+    return {id:raw.id,date:raw.date,type:String(raw.type),title:String(raw.title||''),note:String(raw.note||'')};
+  }
+  function growthRows(kind){return kind==='measure'?growthState.measurements:growthState.moments;}
+  function growthServerRows(kind){return kind==='measure'?growthState.serverMeasures:growthState.serverMoments;}
+  function growthOverlay(kind,server){
+    const rows=server.map(r=>({...r}));
+    for(const j of growthState.queue){
+      if(j.kind!==kind)continue;
+      const index=rows.findIndex(r=>r.id===j.id);
+      if(j.action.startsWith('growthDelete')){if(index>=0)rows.splice(index,1);}
+      else if(index>=0)rows[index]={...j.record};
+      else rows.push({...j.record});
+    }
+    return rows.sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
+  }
+  function growthRebuild(){
+    growthState.measurements=growthOverlay('measure',growthState.serverMeasures);
+    growthState.moments=growthOverlay('moment',growthState.serverMoments);
+  }
+  function growthJournalSave(){
+    try{
+      if(!growthState.queue.length){localStorage.removeItem(growthJournalKey);return true;}
+      localStorage.setItem(growthJournalKey,JSON.stringify({api:API,jobs:growthState.queue}));
+      return !!localStorage.getItem(growthJournalKey);
+    }catch(e){return false;}
+  }
+  function growthRestore(){
+    try{
+      const data=JSON.parse(safeRead(localStorage,growthCacheKey)||'null');
+      if(data&&data.api===API&&Array.isArray(data.measurements)&&Array.isArray(data.moments)){
+        growthState.serverMeasures=data.measurements.map(r=>growthValid('measure',r)).filter(Boolean);
+        growthState.serverMoments=data.moments.map(r=>growthValid('moment',r)).filter(Boolean);
+        growthState.loaded=true;growthState.lastSync=Number(data.savedAt)||0;
+      }
+    }catch(e){}
+    try{
+      const data=JSON.parse(safeRead(localStorage,growthJournalKey)||'null');
+      if(data&&data.api===API&&Array.isArray(data.jobs)){
+        growthState.queue=data.jobs.slice(0,60).filter(j=>j&&['growthAddMeasure','growthEditMeasure','growthDeleteMeasure','growthAddMoment','growthEditMoment','growthDeleteMoment'].includes(j.action)&&
+          ['measure','moment'].includes(j.kind)&&new RegExp('^'+(j.kind==='measure'?'GRM-':'GRJ-')+'[A-F0-9]{16}$').test(String(j.id||''))&&
+          (j.action.startsWith('growthDelete')||growthValid(j.kind,j.record))).map(j=>({...j,needsReconcile:true}));
+      }
+    }catch(e){}
+    growthRebuild();
+  }
+  function growthMsg(message,warning=false){
+    const el=$('#growthSyncStatus');el.textContent=message;el.classList.toggle('growth-warning',warning);
+  }
+  async function growthRead(){
+    const result=await listFromSheets('growthList');
+    if(!result||!result.ok)throw new Error(result?.error||'성장 기록을 불러올 수 없습니다.');
+    if(!Array.isArray(result.measurements)||!Array.isArray(result.moments))throw new Error('성장 기록 응답 형식이 올바르지 않습니다.');
+    return {measurements:result.measurements.map(r=>growthValid('measure',r)).filter(Boolean),moments:result.moments.map(r=>growthValid('moment',r)).filter(Boolean)};
+  }
+  function growthApplyServer(data){
+    growthState.serverMeasures=data.measurements;growthState.serverMoments=data.moments;
+    growthState.loaded=true;growthState.lastSync=Date.now();growthRebuild();
+    try{localStorage.setItem(growthCacheKey,JSON.stringify({api:API,...data,savedAt:growthState.lastSync}));}catch(e){}
+    if(careMode==='growth')renderGrowth();
+  }
+  async function growthRefresh(){
+    if(!state.connected||growthState.loading||growthState.busy)return;
+    growthState.loading=true;
+    const revision=growthState.revision,seq=++growthState.seq,secret=state.secret;
+    growthMsg(growthState.loaded?'저장된 기록 표시 중 · 최신 정보 확인 중…':'Google Sheets 성장 기록 불러오는 중…');
+    try{
+      const data=await growthRead();
+      if(growthState.seq!==seq||growthState.revision!==revision||state.secret!==secret)return;
+      growthApplyServer(data);growthMsg(growthState.queue.length?`${growthState.queue.length}건 저장 대기 중`:'Google Sheets 동기화 완료 · 두 사람에게 공유됩니다.');
+    }catch(e){if(seq===growthState.seq)growthMsg('최신 기록 확인 실패 · '+e.message,true);}
+    finally{if(seq===growthState.seq){growthState.loading=false;if(careMode==='growth')renderGrowth();}}
+  }
+  function growthMatches(data,j){
+    const rows=j.kind==='measure'?data.measurements:data.moments;
+    const record=rows.find(r=>r.id===j.id);
+    if(j.action.startsWith('growthDelete'))return !record;
+    if(!record||!j.record)return false;
+    const fields=j.kind==='measure'?['id','date','weight','height','head','note']:['id','date','type','title','note'];
+    return fields.every(k=>record[k]===j.record[k]);
+  }
+  async function growthConfirm(job){
+    let err=null;
+    for(const delay of [0,400,900,1600,2600]){
+      if(delay)await new Promise(done=>setTimeout(done,delay));
+      try{const data=await growthRead();if(growthMatches(data,job))return data;}catch(e){err=e;}
+    }
+    throw err||new Error('저장 확인이 지연되고 있습니다.');
+  }
+  async function growthDrain(){
+    if(!state.connected||growthState.busy||!growthState.queue.length)return;
+    growthState.busy=true;growthState.failed=false;renderGrowth();
+    try{
+      while(state.connected&&growthState.queue.length){
+        const job=growthState.queue[0];let confirmed=null;
+        if(job.needsReconcile){try{const data=await growthRead();if(growthMatches(data,job))confirmed=data;}catch(e){}}
+        if(!confirmed){
+          job.needsReconcile=true;growthJournalSave();
+          let postError=null;
+          try{await sendMutation(job.action,job.action.startsWith('growthDelete')?{id:job.id}:{record:job.record});}catch(e){postError=e;}
+          try{confirmed=await growthConfirm(job);}catch(e){throw postError||e;}
+        }
+        growthState.queue.shift();growthJournalSave();growthState.revision++;
+        growthApplyServer(confirmed);
+      }
+      growthMsg('성장 기록 저장 완료 · 부부 공유 중');
+    }catch(e){growthState.failed=true;growthMsg('저장 확인 필요 · 기록은 이 기기에 보관 중입니다. 재시도해 주세요. '+e.message,true);}
+    finally{growthState.busy=false;renderGrowth();}
+  }
+  function growthEnqueue(action,record,id,kind){
+    if(!state.secret){growthMsg('SECRET을 연결해 주세요.',true);return false;}
+    if(growthState.queue.some(j=>j.id===id)){growthMsg('이 기록의 이전 저장이 완료되면 다시 시도해 주세요.',true);return false;}
+    const job={action,id,kind,record:record?{...record}:null,needsReconcile:false};
+    growthState.queue.push(job);
+    if(!growthJournalSave()){growthState.queue.pop();growthMsg('저장 대기 정보를 기기에 보관하지 못했습니다. 저장 공간을 확인하세요.',true);return false;}
+    growthState.revision++;growthRebuild();renderGrowth();
+    growthMsg('화면에 바로 반영했습니다 · Google Sheets 저장 중…');
+    if(state.connected)void growthDrain();
+    return true;
+  }
+  function growthBirth(){return growthState.moments.find(r=>r.type==='탄생일')||null;}
+  function growthAge(date){const birth=growthBirth(),from=birth&&parseLocalDate(birth.date),to=parseLocalDate(date);
+    if(!from||!to)return '';
+    const days=daysBetween(from,to);return days<0?'':`D+${days}`;
+  }
+  function growthValue(n){return n==null?'—':String(n);}
+  function growthEmpty(parent,msg){const text=document.createElement('p');text.className='growth-empty';text.textContent=msg;parent.append(text);}
+  function growthEntry(kind,record){
+    const row=document.createElement('article');row.className='growth-history-item';
+    const icon=document.createElement('div');icon.className='growth-history-mark';icon.textContent=kind==='measure'?'📏':record.type==='탄생일'?'🎂':'🌱';row.append(icon);
+    const info=document.createElement('div');info.className='growth-history-content';
+    const title=kind==='measure'
+      ?[record.weight!=null?`${record.weight}kg`:'',record.height!=null?`${record.height}cm`:'',record.head!=null?`머리 ${record.head}cm`:''].filter(Boolean).join(' · ')
+      :record.title;
+    careLine(info,'strong','',title||'성장 측정');
+    careLine(info,'span','',`${record.date}${growthAge(record.date)?' · '+growthAge(record.date):''}${kind==='moment'?' · '+record.type:''}`);
+    if(record.note)careLine(info,'p','',record.note);
+    row.append(info);
+    const btn=careLine(row,'button','', '수정');btn.type='button';
+    btn.disabled=growthState.queue.some(j=>j.id===record.id);
+    btn.addEventListener('click',()=>growthOpenEditor(kind,record));
+    return row;
+  }
+  function growthGraph(){
+    const target=$('#growthGraph');target.replaceChildren();
+    const metric=growthState.metric;
+    const records=growthState.measurements.filter(r=>r[metric]!=null).sort((a,b)=>a.date.localeCompare(b.date));
+    if(records.length<2){growthEmpty(target,'측정값을 2번 이상 등록하면 변화 그래프가 나타납니다.');return;}
+    const points=records.slice(-28),nums=points.map(r=>r[metric]);
+    let min=Math.min(...nums),max=Math.max(...nums);
+    const margin=Math.max((max-min)*.2,metric==='weight'?.2:1.0);
+    min=Math.max(0,min-margin);max+=margin;
+    const start=Date.parse(points[0].date+'T00:00:00Z'),end=Date.parse(points[points.length-1].date+'T00:00:00Z');
+    const chart={w:340,h:166,l:33,r:11,t:15,b:29};
+    const x=i=>chart.l+(chart.w-chart.l-chart.r)*(end===start?i/Math.max(1,points.length-1):(Date.parse(points[i].date+'T00:00:00Z')-start)/(end-start));
+    const y=n=>chart.t+(chart.h-chart.t-chart.b)*(1-(n-min)/(max-min));
+    const ns='http://www.w3.org/2000/svg';
+    const svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox',`0 0 ${chart.w} ${chart.h}`);
+    svg.setAttribute('role','img');svg.setAttribute('aria-label',`${metric==='weight'?'몸무게':metric==='height'?'키':'머리둘레'} ${points.length}건 측정 그래프`);
+    const elt=(name,attrs,text)=>{const e=document.createElementNS(ns,name);for(const [k,v] of Object.entries(attrs||{}))e.setAttribute(k,String(v));if(text!=null)e.textContent=text;svg.append(e);return e;};
+    for(let i=0;i<=3;i++){
+      const value=min+(max-min)*(3-i)/3,yy=y(value);
+      elt('line',{x1:chart.l,y1:yy,x2:chart.w-chart.r,y2:yy,stroke:'#EDEAE8','stroke-width':1});
+      elt('text',{x:chart.l-5,y:yy+4,'text-anchor':'end','font-size':9,fill:'#938F92'},value.toFixed(metric==='weight'?1:0));
+    }
+    elt('polyline',{points:points.map((p,i)=>`${x(i).toFixed(1)},${y(p[metric]).toFixed(1)}`).join(' '),fill:'none',stroke:'#D18770','stroke-width':2.6,'stroke-linejoin':'round','stroke-linecap':'round'});
+    points.forEach((p,i)=>elt('circle',{cx:x(i),cy:y(p[metric]),r:3.2,fill:'#FFF',stroke:'#D18770','stroke-width':2}));
+    elt('text',{x:chart.l,y:chart.h-6,'font-size':10,fill:'#8C8587'},points[0].date.slice(5));
+    elt('text',{x:chart.w-chart.r,y:chart.h-6,'text-anchor':'end','font-size':10,fill:'#8C8587'},points[points.length-1].date.slice(5));
+    target.append(svg);
+  }
+  function renderGrowth(){
+    if(!$('#careGrowthPane')||careMode!=='growth')return;
+    $('#growthRetryBtn').hidden=!growthState.queue.length;
+    $('#growthRetryBtn').disabled=growthState.busy;
+    $('#growthRefreshBtn').disabled=!state.connected||growthState.loading||growthState.busy;
+    const birth=growthBirth();
+    $('#growthBirthText').textContent=birth?`${dateLabel(parseLocalDate(birth.date))} · 토리 탄생일`:'아직 탄생일이 등록되지 않았어요.';
+    const today=new Date(),since=birth?daysBetween(parseLocalDate(birth.date),today):null;
+    $('#growthBirthDays').textContent=since==null?'탄생일 미등록':since>=0?`D+${since}`:`D-${Math.abs(since)}`;
+    const latest=growthState.measurements[0];
+    $('#growthLastMeasure').textContent=latest?latest.date:'아직 기록 없음';
+    for(const [id,key] of [['growthLatestWeight','weight'],['growthLatestHeight','height'],['growthLatestHead','head']]){
+      const value=growthState.measurements.find(r=>r[key]!=null);
+      $('#'+id).textContent=value?growthValue(value[key]):'—';
+    }
+    for(const button of document.querySelectorAll('[data-growth-metric]')){
+      button.classList.toggle('active',button.dataset.growthMetric===growthState.metric);
+      button.setAttribute('aria-pressed',String(button.dataset.growthMetric===growthState.metric));
+    }
+    growthGraph();
+    const measures=$('#growthMeasureList'),moments=$('#growthMomentList');measures.replaceChildren();moments.replaceChildren();
+    if(!growthState.measurements.length)growthEmpty(measures,growthState.loaded?'아직 측정 기록이 없어요.':'기록을 불러오는 중입니다.');
+    else growthState.measurements.slice(0,30).forEach(r=>measures.append(growthEntry('measure',r)));
+    if(!growthState.moments.length)growthEmpty(moments,growthState.loaded?'첫 성장 순간을 기록해 보세요.':'기록을 불러오는 중입니다.');
+    else growthState.moments.slice(0,50).forEach(r=>moments.append(growthEntry('moment',r)));
+  }
+  function growthOpenEditor(kind,record=null){
+    if(!state.secret){growthMsg('설정에서 SECRET을 연결하세요.',true);return;}
+    growthState.editingId=record?.id||null;growthState.editingKind=kind;
+    const d=t=>$('#'+t);
+    if(kind==='measure'){
+      d('growthMeasureTitle').textContent=record?'성장 측정 수정':'성장 측정 추가';
+      d('growthMeasureDate').value=record?.date||careLocalDay(new Date().toISOString());
+      d('growthMeasureDate').max=careLocalDay(new Date().toISOString());
+      for(const [id,key] of [['growthMeasureWeight','weight'],['growthMeasureHeight','height'],['growthMeasureHead','head']])d(id).value=record?.[key]??'';
+      d('growthMeasureNote').value=record?.note||'';d('growthMeasureDelete').hidden=!record;
+      d('growthMeasureError').hidden=true;d('growthMeasureError').textContent='';d('growthMeasureEditor').showModal();
+    }else{
+      d('growthMomentTitle').textContent=record?'성장 순간 수정':'성장 순간 남기기';
+      d('growthMomentDate').value=record?.date||careLocalDay(new Date().toISOString());
+      d('growthMomentDate').max=careLocalDay(new Date().toISOString());
+      d('growthMomentType').value=record?.type||'첫 미소';
+      d('growthMomentName').value=record?.title||'첫 미소';
+      d('growthMomentNote').value=record?.note||'';d('growthMomentDelete').hidden=!record;
+      d('growthMomentError').hidden=true;d('growthMomentError').textContent='';d('growthMomentEditor').showModal();
+    }
+  }
+  function growthValidateDay(date){
+    const parsed=parseLocalDate(date);if(!parsed||parsed.getFullYear()<2000||daysBetween(parsed,new Date())<0)throw new Error('오늘 또는 이전 날짜를 선택하세요.');return date;
+  }
+  function growthNumForm(id,min,max,name){
+    const raw=$('#'+id).value.trim();if(!raw)return null;
+    const num=Number(raw);
+    if(!Number.isFinite(num)||num<min||num>max||Math.abs(num*100-Math.round(num*100))>1e-7)throw new Error(name+'는 '+min+'~'+max+' 범위에서 입력하세요.');
+    return num;
+  }
+  function growthSave(kind){
+    const errorEl=$('#'+(kind==='measure'?'growthMeasureError':'growthMomentError'));
+    try{
+      const record=kind==='measure'?{
+        id:growthState.editingId||growthNewId('measure'),date:growthValidateDay($('#growthMeasureDate').value),
+        weight:growthNumForm('growthMeasureWeight',.1,50,'몸무게'),height:growthNumForm('growthMeasureHeight',20,150,'키'),head:growthNumForm('growthMeasureHead',20,80,'머리둘레'),note:$('#growthMeasureNote').value.trim()
+      }:{
+        id:growthState.editingId||growthNewId('moment'),date:growthValidateDay($('#growthMomentDate').value),
+        type:$('#growthMomentType').value,title:$('#growthMomentName').value.trim(),note:$('#growthMomentNote').value.trim()
+      };
+      if(record.note.length>400)throw new Error('메모는 400자 이내로 입력하세요.');
+      if(kind==='measure'&&record.weight==null&&record.height==null&&record.head==null)throw new Error('몸무게·키·머리둘레 중 하나는 입력하세요.');
+      if(kind==='moment'&&(!record.title||record.title.length>80))throw new Error('성장 순간 제목을 입력해 주세요.');
+      if(kind==='moment'&&record.type==='탄생일'&&growthState.moments.some(r=>r.type==='탄생일'&&r.id!==record.id))throw new Error('탄생일은 하나만 등록할 수 있어요. 기존 탄생일을 수정하세요.');
+      const action=`growth${growthState.editingId?'Edit':'Add'}${kind==='measure'?'Measure':'Moment'}`;
+      if(growthEnqueue(action,record,record.id,kind))$('#'+(kind==='measure'?'growthMeasureEditor':'growthMomentEditor')).close();
+      else throw new Error('저장 대기 상태를 확인한 뒤 다시 시도해 주세요.');
+    }catch(e){errorEl.textContent=e.message;errorEl.hidden=false;}
+  }
+  function growthDelete(kind){
+    const id=growthState.editingId;if(!id)return;
+    if(!window.confirm('선택한 성장 기록을 부부 공유 목록에서 삭제할까요?'))return;
+    if(growthEnqueue(`growthDelete${kind==='measure'?'Measure':'Moment'}`,null,id,kind))$('#'+(kind==='measure'?'growthMeasureEditor':'growthMomentEditor')).close();
+  }
+  function growthAttach(){
+    $('#careModeGrowth').addEventListener('click',()=>{
+      careMode='growth';renderCare();
+      if(state.connected){if(growthState.queue.length)void growthDrain();else void growthRefresh();}
+    });
+    for(const button of document.querySelectorAll('[data-growth-metric]')){
+      button.addEventListener('click',()=>{growthState.metric=button.dataset.growthMetric;renderGrowth();});
+    }
+    $('#growthAddMeasure').addEventListener('click',()=>growthOpenEditor('measure'));
+    $('#growthAddMoment').addEventListener('click',()=>growthOpenEditor('moment'));
+    $('#growthMeasureMore').addEventListener('click',()=>growthOpenEditor('measure'));
+    $('#growthMomentMore').addEventListener('click',()=>growthOpenEditor('moment'));
+    $('#growthRefreshBtn').addEventListener('click',()=>{if(growthState.queue.length)void growthDrain();else void growthRefresh();});
+    $('#growthRetryBtn').addEventListener('click',()=>growthDrain());
+    $('#growthMeasureCancel').addEventListener('click',()=>$('#growthMeasureEditor').close());
+    $('#growthMomentCancel').addEventListener('click',()=>$('#growthMomentEditor').close());
+    $('#growthMeasureForm').addEventListener('submit',e=>{e.preventDefault();growthSave('measure');});
+    $('#growthMomentForm').addEventListener('submit',e=>{e.preventDefault();growthSave('moment');});
+    $('#growthMomentType').addEventListener('change',()=>{
+      const el=$('#growthMomentName');if(!el.value.trim()||growthMomentTypes.includes(el.value.trim()))el.value=$('#growthMomentType').value;
+    });
+    $('#growthMeasureDelete').addEventListener('click',()=>growthDelete('measure'));
+    $('#growthMomentDelete').addEventListener('click',()=>growthDelete('moment'));
+  }
+
   $('#listTab').addEventListener('click',()=>setTab('list'));
   $('#careTab').addEventListener('click',()=>setTab('care'));
   $('#statsTab').addEventListener('click',()=>setTab('stats'));
@@ -1949,6 +2243,7 @@
     if(state.familyQueue.length)void drainFamilyQueue();
     else if(state.connected)void loadFamilyEvents();
     if(careState.queue.length)void careDrain();else if(state.connected)void careRefresh();
+    if(growthState.queue.length)void growthDrain();else if(state.connected&&careMode==='growth')void growthRefresh();
   });
   // Returning to the app checks for changes made by the other parent.
   // Cached entries stay visible while the remote check runs.
@@ -1958,6 +2253,8 @@
     else if(Date.now()-state.familyLastSyncAt>=FAMILY_RESUME_SYNC_MS)void loadFamilyEvents();
     if(careState.queue.length)void careDrain();
     else if(Date.now()-careState.lastSync>=FAMILY_RESUME_SYNC_MS)void careRefresh();
+    if(growthState.queue.length)void growthDrain();
+    else if(careMode==='growth'&&Date.now()-growthState.lastSync>=FAMILY_RESUME_SYNC_MS)void growthRefresh();
   });
   $('#settingsForm').addEventListener('submit',e=>{
     e.preventDefault();
@@ -1978,8 +2275,10 @@
     safeRemove(localStorage,journalKey);
     safeRemove(localStorage,familyCacheKey);safeRemove(localStorage,familyJournalKey);
     safeRemove(localStorage,careCacheKey);safeRemove(localStorage,careJournalKey);
+    safeRemove(localStorage,growthCacheKey);safeRemove(localStorage,growthJournalKey);
     state.familyQueue=[];state.familySavedEvents=[];state.familyServerEvents=[];state.familyLoaded=false;
-    careState.queue=[];careState.server=[];careState.events=[];careState.loaded=false;careState.lastSync=0;renderCare();
+    careState.queue=[];careState.server=[];careState.events=[];careState.loaded=false;careState.lastSync=0;
+    growthState.queue=[];growthState.serverMeasures=[];growthState.serverMoments=[];growthState.loaded=false;growthRebuild();renderCare();
     state.secret='';state.items=[];state.connected=false;state.cached=false;state.pendingChecks.clear();
     state.pendingEdits.clear();state.mutationQueue=[];state.mutationFailed=false;updateQueueView();
     $('#secretInput').value='';
@@ -2024,6 +2323,8 @@
   restoreFamilyJournal();
   careRestore();
   careAttach();
+  growthRestore();
+  growthAttach();
   updateQueueView();
   updateConnectedView();
   updateFamilySyncUI();

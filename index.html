@@ -20,7 +20,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css?v=29">
   <script src="config.js" defer></script>
-  <script src="app.js?v=29" defer></script>
+  <script src="app.js?v=30" defer></script>
 </head>
 <body>
 <main class="wrap">
@@ -226,12 +226,13 @@
       <button id="careGoSettingsBtn" type="button" class="primary">설정에서 연결하기</button>
     </section>
     <div id="careDashboard" hidden>
-      <div class="care-sync-row" role="status" aria-live="polite"><span id="careSyncStatus">최신 기록 확인 중…</span>
+      <div class="care-sync-row" id="careSyncRow" role="status" aria-live="polite"><span id="careSyncStatus">최신 기록 확인 중…</span>
         <div class="care-sync-actions"><button type="button" id="careRetryBtn" hidden>↻ 다시 저장</button><button type="button" id="careDiscardBtn" hidden>대기 기록 취소</button><button type="button" id="careRefreshBtn">↻ 새로고침</button></div>
       </div>
       <div class="care-mode-switch" role="group" aria-label="육아 기록 화면 선택">
         <button type="button" id="careModeRecord" class="active" aria-pressed="true">✎ 기록하기</button>
         <button type="button" id="careModeStats" aria-pressed="false">▥ 육아 통계</button>
+        <button type="button" id="careModeGrowth" aria-pressed="false">♡ 성장 기록</button>
       </div>
       <div id="careRecordPane">
       <section class="care-today-card"><div class="care-section-title"><h3>오늘의 토리</h3><span>실시간 기록</span></div>
@@ -288,6 +289,32 @@
           <p class="care-footnote">통계는 육아 기록용 참고 자료이며, 적정 수유량·수면시간 등을 의학적으로 판단하지 않습니다. 분유량은 입력된 분유 기록만 합산하고 모유는 수유 횟수에 포함합니다.</p>
         </section>
       </div><!-- careStatsPane -->
+      <div id="careGrowthPane" hidden>
+        <section class="growth-hero">
+          <div class="care-section-title"><h3>🌱 토리 성장 기록</h3><span>우리 가족의 성장일기</span></div>
+          <div class="growth-birth-line"><div><span class="growth-muted">탄생일과 함께 쌓이는 소중한 기록</span><strong id="growthBirthText">아직 탄생일이 등록되지 않았어요.</strong></div><strong class="growth-day-count" id="growthBirthDays">D-day 준비 중</strong></div>
+          <p class="growth-hint" id="growthBirthHelp">실제 탄생일을 성장 순간에 등록하면 D+를 자동 계산합니다. 출산 예정일과는 별도로 관리돼요.</p>
+          <div class="growth-actions"><button type="button" id="growthAddMeasure">＋ 성장 측정</button><button type="button" id="growthAddMoment">＋ 성장 순간</button></div>
+        </section>
+        <div class="growth-sync-row"><span id="growthSyncStatus" role="status" aria-live="polite">성장 기록을 불러오는 중…</span><div><button type="button" id="growthRetryBtn" hidden>재시도</button><button type="button" id="growthRefreshBtn">↻ 새로고침</button></div></div>
+        <section class="care-panel growth-overview">
+          <div class="care-section-title"><h3>최근 성장 측정</h3><small id="growthLastMeasure">아직 기록 없음</small></div>
+          <div class="growth-stat-grid"><div><span>몸무게</span><strong id="growthLatestWeight">—</strong><small>kg</small></div><div><span>키</span><strong id="growthLatestHeight">—</strong><small>cm</small></div><div><span>머리둘레</span><strong id="growthLatestHead">—</strong><small>cm</small></div></div>
+          <div class="growth-graph-head"><h4>성장 변화</h4><span>실제 입력한 측정값</span></div>
+          <div class="growth-metric-picker" role="group" aria-label="성장 그래프 항목"><button type="button" data-growth-metric="weight" class="active">몸무게</button><button type="button" data-growth-metric="height">키</button><button type="button" data-growth-metric="head">머리둘레</button></div>
+          <div class="growth-graph" id="growthGraph" role="img" aria-label="성장 기록 변화 그래프"></div>
+          <p class="growth-hint">그래프는 저장된 측정값만 연결하며, 또래 성장 기준이나 의학적 진단을 의미하지 않습니다.</p>
+        </section>
+        <section class="care-panel growth-history">
+          <div class="care-section-title"><h3>측정 이력</h3><button type="button" class="growth-small-add" id="growthMeasureMore">＋ 추가</button></div>
+          <div class="growth-history-list" id="growthMeasureList"></div>
+        </section>
+        <section class="care-panel growth-diary">
+          <div class="care-section-title"><h3>토리의 성장 순간</h3><button type="button" class="growth-small-add" id="growthMomentMore">＋ 추가</button></div>
+          <p class="growth-hint">첫 미소, 첫 뒤집기, 첫걸음 등 원하는 순간을 자유롭게 기록할 수 있어요.</p>
+          <div class="growth-history-list" id="growthMomentList"></div>
+        </section>
+      </div><!-- careGrowthPane -->
     </div>
   </section>
 
@@ -319,6 +346,30 @@
   </nav>
 </main>
 
+
+<dialog id="growthMeasureEditor" aria-labelledby="growthMeasureTitle">
+  <form id="growthMeasureForm">
+    <div class="dialog-head"><h2 id="growthMeasureTitle">성장 측정 추가</h2><button type="button" id="growthMeasureCancel" class="close" aria-label="닫기">✕</button></div>
+    <p class="growth-hint">측정한 항목만 입력해도 됩니다. 숫자는 소수점 둘째 자리까지 저장돼요.</p>
+    <label>측정일<input type="date" id="growthMeasureDate" required min="2000-01-01"></label>
+    <div class="growth-edit-two"><label>몸무게 (kg)<input id="growthMeasureWeight" type="number" min="0.1" max="50" step="0.01" inputmode="decimal" placeholder="예: 3.25"></label><label>키 (cm)<input id="growthMeasureHeight" type="number" min="20" max="150" step="0.01" inputmode="decimal" placeholder="예: 50.5"></label></div>
+    <label>머리둘레 (cm)<input id="growthMeasureHead" type="number" min="20" max="80" step="0.01" inputmode="decimal" placeholder="예: 34.2"></label>
+    <label>메모 (선택)<textarea id="growthMeasureNote" maxlength="400" rows="3" placeholder="병원 측정, 가정 측정 등"></textarea></label>
+    <p id="growthMeasureError" class="growth-error" role="alert" hidden></p>
+    <button type="submit" class="primary">성장 측정 저장</button><button id="growthMeasureDelete" type="button" class="outline-danger" hidden>이 측정 기록 삭제</button>
+  </form>
+</dialog>
+<dialog id="growthMomentEditor" aria-labelledby="growthMomentTitle">
+  <form id="growthMomentForm">
+    <div class="dialog-head"><h2 id="growthMomentTitle">성장 순간 남기기</h2><button type="button" id="growthMomentCancel" class="close" aria-label="닫기">✕</button></div>
+    <label>기록 날짜<input type="date" id="growthMomentDate" required min="2000-01-01"></label>
+    <label>성장 순간<select id="growthMomentType"><option>탄생일</option><option>첫 미소</option><option>목 가누기</option><option>첫 옹알이</option><option>첫 뒤집기</option><option>혼자 앉기</option><option>첫니</option><option>첫걸음</option><option>100일</option><option>기타</option></select></label>
+    <label>제목<input id="growthMomentName" type="text" required maxlength="80" placeholder="예: 처음으로 환하게 웃었어요"></label>
+    <label>우리 가족의 메모 (선택)<textarea id="growthMomentNote" maxlength="400" rows="4" placeholder="그날 있었던 소중한 이야기를 적어 주세요"></textarea></label>
+    <p id="growthMomentError" class="growth-error" role="alert" hidden></p>
+    <button type="submit" class="primary">성장 순간 저장</button><button id="growthMomentDelete" type="button" class="outline-danger" hidden>이 성장 순간 삭제</button>
+  </form>
+</dialog>
 
 <dialog id="careEditor" aria-labelledby="careEditorTitle">
   <form id="careEditForm">
