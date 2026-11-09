@@ -63,7 +63,7 @@
     }
     document.body.dataset.view=view;
     if(view==='stats')renderStatistics();
-    if(view==='care'){renderCare();if(state.connected){if(careState.queue.length)void careDrain();else void careRefresh();if(careMode==='growth'){if(growthState.queue.length)void growthDrain();else void growthRefresh();}}}
+    if(view==='care'){renderCare();if(state.connected){if(careState.queue.length)void careDrain();else void careRefresh();if(careMode==='growth'){if(growthState.queue.length)void growthDrain();else void growthRefresh();void photoRefresh();}}}
     if(view==='family'){
       // Whenever the user opens the family tab, start at the current local month/day.
       // Manual month navigation remains in place until they leave this tab.
@@ -124,11 +124,14 @@
       throw new Error('config.js 파일에 Apps Script /exec 주소를 입력해야 합니다.');
     }
   }
-  async function listFromSheets(action='list') {
+  async function listFromSheets(action='list',extra={}) {
     checkConfig();
     const random=nonce(), ts=String(Date.now()), callback='babyCb_'+random;
-    const sig=await signature('GET',ts,random,action,callback);
-    const params=new URLSearchParams({action,ts,nonce:random,callback,sig});
+    // For photoGet, bind the photo ID to the HMAC signature to prevent ID substitution.
+    const photoId=action==='photoGet'?String(extra.photoId||''):'';
+    if(action==='photoGet'&&!/^BPH-[A-F0-9]{16}$/.test(photoId))throw new Error('사진 ID가 올바르지 않습니다.');
+    const sig=await signature('GET',ts,random,action,callback+(action==='photoGet'?'|'+photoId:''));
+    const params=new URLSearchParams({...extra,action,ts,nonce:random,callback,sig});
     return await new Promise((resolve,reject)=>{
       const script=document.createElement('script');let settled=false;
       const timeout=setTimeout(()=>finish(new Error('응답 시간이 초과되었습니다. 인터넷 연결과 배포 권한을 확인하세요.')),30000);
@@ -1082,6 +1085,7 @@
     const previousSecret=state.secret,previousConnected=state.connected;
     const button=$('#saveSecretBtn');
     state.secret=secret;
+    if(secret!==previousSecret&&photoState.loaded)photoClear();
     if(fromSettings) busy(button,true,'연결 확인 중…');
     // Keep routine startup reconnection silent; show connection feedback only for manual settings changes.
     if(fromSettings) notify('Google Sheets 연결 확인 중…');
@@ -2024,6 +2028,7 @@
         }
         growthState.queue.shift();growthJournalSave();growthState.revision++;
         growthApplyServer(confirmed);
+        if(job.action==='growthDeleteMoment')void photoRefresh();
       }
       growthMsg('성장 기록 저장 완료 · 부부 공유 중');
     }catch(e){growthState.failed=true;growthMsg('저장 확인 필요 · 기록은 이 기기에 보관 중입니다. 재시도해 주세요. '+e.message,true);}
@@ -2057,7 +2062,21 @@
     careLine(info,'strong','',title||'성장 측정');
     careLine(info,'span','',`${record.date}${growthAge(record.date)?' · '+growthAge(record.date):''}${kind==='moment'?' · '+record.type:''}`);
     if(record.note)careLine(info,'p','',record.note);
+    if(kind==='moment'){
+      const own=photoState.photos.filter(photo=>photo.momentId===record.id);
+      if(own.length){
+        const strip=document.createElement('div');strip.className='growth-photo-mini-grid';
+        own.forEach(photo=>strip.append(photoThumb(photo,record)));info.append(strip);
+      }
+    }
     row.append(info);
+    if(kind==='moment'){
+      const own=photoState.photos.filter(photo=>photo.momentId===record.id);
+      const add=careLine(row,'button','growth-photo-add-btn',`📷 ${own.length}/5`);add.type='button';
+      add.title='사진 추가·관리';
+      add.disabled=growthState.queue.some(j=>j.id===record.id)||!growthState.serverMoments.some(m=>m.id===record.id);
+      add.addEventListener('click',()=>photoOpenEditor(record.id));
+    }
     const btn=careLine(row,'button','', '수정');btn.type='button';
     btn.disabled=growthState.queue.some(j=>j.id===record.id);
     btn.addEventListener('click',()=>growthOpenEditor(kind,record));
@@ -2116,6 +2135,7 @@
     else growthState.measurements.slice(0,30).forEach(r=>measures.append(growthEntry('measure',r)));
     if(!growthState.moments.length)growthEmpty(moments,growthState.loaded?'첫 성장 순간을 기록해 보세요.':'기록을 불러오는 중입니다.');
     else growthState.moments.slice(0,50).forEach(r=>moments.append(growthEntry('moment',r)));
+    photoRenderAlbum();
   }
   function growthOpenEditor(kind,record=null){
     if(!state.secret){growthMsg('설정에서 SECRET을 연결하세요.',true);return;}
@@ -2168,13 +2188,16 @@
   }
   function growthDelete(kind){
     const id=growthState.editingId;if(!id)return;
-    if(!window.confirm('선택한 성장 기록을 부부 공유 목록에서 삭제할까요?'))return;
-    if(growthEnqueue(`growthDelete${kind==='measure'?'Measure':'Moment'}`,null,id,kind))$('#'+(kind==='measure'?'growthMeasureEditor':'growthMomentEditor')).close();
+    if(!window.confirm(kind==='moment'?'이 성장일기를 삭제하면 연결된 사진도 Drive 휴지통으로 이동합니다. 삭제할까요?':'선택한 성장 측정을 삭제할까요?'))return;
+    if(growthEnqueue(`growthDelete${kind==='measure'?'Measure':'Moment'}`,null,id,kind)){
+      if(kind==='moment')photoState.photos=photoState.photos.filter(p=>p.momentId!==id);
+      $('#'+(kind==='measure'?'growthMeasureEditor':'growthMomentEditor')).close();
+    }
   }
   function growthAttach(){
     $('#careModeGrowth').addEventListener('click',()=>{
       careMode='growth';renderCare();
-      if(state.connected){if(growthState.queue.length)void growthDrain();else void growthRefresh();}
+      if(state.connected){if(growthState.queue.length)void growthDrain();else void growthRefresh();void photoRefresh();}
     });
     for(const button of document.querySelectorAll('[data-growth-metric]')){
       button.addEventListener('click',()=>{growthState.metric=button.dataset.growthMetric;renderGrowth();});
@@ -2183,7 +2206,7 @@
     $('#growthAddMoment').addEventListener('click',()=>growthOpenEditor('moment'));
     $('#growthMeasureMore').addEventListener('click',()=>growthOpenEditor('measure'));
     $('#growthMomentMore').addEventListener('click',()=>growthOpenEditor('moment'));
-    $('#growthRefreshBtn').addEventListener('click',()=>{if(growthState.queue.length)void growthDrain();else void growthRefresh();});
+    $('#growthRefreshBtn').addEventListener('click',()=>{if(growthState.queue.length)void growthDrain();else void growthRefresh();void photoRefresh();});
     $('#growthRetryBtn').addEventListener('click',()=>growthDrain());
     $('#growthMeasureCancel').addEventListener('click',()=>$('#growthMeasureEditor').close());
     $('#growthMomentCancel').addEventListener('click',()=>$('#growthMomentEditor').close());
@@ -2194,6 +2217,216 @@
     });
     $('#growthMeasureDelete').addEventListener('click',()=>growthDelete('measure'));
     $('#growthMomentDelete').addEventListener('click',()=>growthDelete('moment'));
+  }
+
+
+  // BabyPrep v31 — photo metadata from Sheets, private photo content via signed GET.
+  // Image bytes are kept in memory (Blob URLs), never in localStorage or public Drive links.
+  const photoState={photos:[],loaded:false,loading:false,busy:false,seq:0,lastSync:0,
+    activeMomentId:null,activePhotoId:null,month:'',images:new Map(),pending:new Map()};
+  function photoNewId(){return 'BPH-'+Array.from(crypto.getRandomValues(new Uint8Array(8)),n=>n.toString(16).padStart(2,'0')).join('').toUpperCase();}
+  function photoClear(){
+    photoState.seq++;photoState.photos=[];photoState.loaded=false;photoState.loading=false;photoState.busy=false;
+    photoState.lastSync=0;photoState.activeMomentId=null;photoState.activePhotoId=null;photoState.month='';
+    for(const url of photoState.images.values())URL.revokeObjectURL(url);
+    photoState.images.clear();photoState.pending.clear();
+    if($('#growthPhotoViewer').open)$('#growthPhotoViewer').close();
+    if($('#growthPhotoEditor').open)$('#growthPhotoEditor').close();
+  }
+  function photoStatus(message,warning=false){
+    const el=$('#growthPhotoStatus');el.textContent=message;el.classList.toggle('warning',warning);
+  }
+  function photoForMoment(momentId){return photoState.photos.filter(p=>p.momentId===momentId);}
+  function photoMoment(id){return growthState.moments.find(r=>r.id===id);}
+  function photoValid(p){return p&&/^BPH-[A-F0-9]{16}$/.test(String(p.id||''))&&/^GRJ-[A-F0-9]{16}$/.test(String(p.momentId||''));}
+  async function photoRead(){
+    const data=await listFromSheets('photoList');
+    if(!data||!data.ok||!Array.isArray(data.photos))throw new Error(data?.error||'사진 목록을 읽지 못했습니다.');
+    return data.photos.filter(photoValid).map(p=>({id:p.id,momentId:p.momentId,created:String(p.created||'')}));
+  }
+  function photoApply(list){
+    const previous=new Set(list.map(p=>p.id));
+    for(const [id,url] of photoState.images){
+      if(!previous.has(id)){URL.revokeObjectURL(url);photoState.images.delete(id);}
+    }
+    photoState.photos=list;photoState.loaded=true;photoState.lastSync=Date.now();
+    if(careMode==='growth')renderGrowth();
+    if($('#growthPhotoEditor').open)photoRenderEditor();
+  }
+  async function photoRefresh(){
+    if(!state.connected||photoState.loading||photoState.busy)return;
+    photoState.loading=true;const seq=++photoState.seq,secret=state.secret;
+    photoStatus(photoState.loaded?'사진 최신 목록 확인 중…':'공유 앨범 불러오는 중…');
+    try{
+      const data=await photoRead();
+      if(seq!==photoState.seq||secret!==state.secret)return;
+      photoApply(data);photoStatus(`부부 공유 앨범 동기화 완료 · 사진 ${data.length}장`);
+    }catch(e){if(seq===photoState.seq)photoStatus('사진 목록 확인 실패 · '+e.message,true);}
+    finally{if(seq===photoState.seq)photoState.loading=false;}
+  }
+  function photoImageData(base64){
+    if(typeof base64!=='string'||base64.length>900000||!/^[A-Za-z0-9+/]+={0,2}$/.test(base64))throw new Error('사진 데이터가 손상됐습니다.');
+    const raw=atob(base64),arr=new Uint8Array(raw.length);
+    for(let i=0;i<raw.length;i++)arr[i]=raw.charCodeAt(i);
+    if(arr[0]!==255||arr[1]!==216||arr[2]!==255)throw new Error('사진 형식이 올바르지 않습니다.');
+    return URL.createObjectURL(new Blob([arr],{type:'image/jpeg'}));
+  }
+  async function photoLoad(id){
+    if(photoState.images.has(id))return photoState.images.get(id);
+    if(photoState.pending.has(id))return photoState.pending.get(id);
+    if(!state.connected||!photoState.photos.some(p=>p.id===id))throw new Error('사진 연결을 확인하세요.');
+    const secret=state.secret;
+    const promise=(async()=>{
+      const response=await listFromSheets('photoGet',{photoId:id});
+      if(!response||!response.ok||response.id!==id||response.mime!=='image/jpeg')throw new Error(response?.error||'사진을 읽지 못했습니다.');
+      if(secret!==state.secret)throw new Error('연결이 변경되었습니다.');
+      const url=photoImageData(response.base64);
+      photoState.images.set(id,url);return url;
+    })();
+    photoState.pending.set(id,promise);
+    try{return await promise;}finally{photoState.pending.delete(id);}
+  }
+  function photoThumb(photo,moment){
+    const b=document.createElement('button');b.type='button';b.className='growth-photo-thumb';
+    b.setAttribute('aria-label',`${moment?.date||''} ${moment?.title||'성장 사진'} 확대`);
+    b.title=`${moment?.date||''} ${moment?.title||''}`;
+    const label=document.createElement('span');label.textContent='📷';b.append(label);
+    b.addEventListener('click',()=>photoOpenViewer(photo.id));
+    async function show(){
+      if(!b.isConnected||!state.connected)return;
+      try{const url=await photoLoad(photo.id);if(!b.isConnected)return;
+        const img=document.createElement('img');img.alt=moment?.title||'성장 사진';img.src=url;img.loading='lazy';b.replaceChildren(img);
+      }catch(e){if(b.isConnected){label.textContent='↻ 다시 보기';b.replaceChildren(label);}}
+    }
+    if(typeof IntersectionObserver!=='undefined'){
+      const observer=new IntersectionObserver(entries=>{if(entries.some(e=>e.isIntersecting)){observer.disconnect();void show();}},{rootMargin:'180px'});
+      observer.observe(b);
+    }else void show();
+    return b;
+  }
+  function photoRenderAlbum(){
+    const select=$('#growthPhotoMonth'),album=$('#growthPhotoAlbum');if(!select||!album)return;
+    const available=photoState.photos.map(photo=>({photo,moment:photoMoment(photo.momentId)})).filter(x=>x.moment);
+    const months=[...new Set(available.map(x=>x.moment.date.slice(0,7)))].sort().reverse();
+    if(!months.includes(photoState.month))photoState.month=months[0]||'';
+    select.replaceChildren();
+    if(!months.length)select.add(new Option('사진 없음',''));
+    else for(const month of months)select.add(new Option(month.slice(0,4)+'년 '+Number(month.slice(5))+'월',month));
+    select.value=photoState.month;select.disabled=!months.length;
+    album.replaceChildren();
+    const group=available.filter(x=>x.moment.date.startsWith(photoState.month)).sort((a,b)=>b.moment.date.localeCompare(a.moment.date)||b.photo.created.localeCompare(a.photo.created));
+    if(!group.length){growthEmpty(album,photoState.loaded?'아직 등록된 사진이 없어요. 성장 순간에서 사진을 추가해 보세요.':'공유 앨범을 불러오는 중입니다.');return;}
+    group.forEach(({photo,moment})=>album.append(photoThumb(photo,moment)));
+  }
+  function photoModalError(message){const el=$('#growthPhotoError');el.textContent=message;el.hidden=!message;}
+  function photoOpenEditor(momentId){
+    if(!state.connected)return photoStatus('Google Sheets에 연결한 후 사진을 추가해 주세요.',true);
+    const moment=growthState.serverMoments.find(r=>r.id===momentId);
+    if(!moment)return photoStatus('성장 순간 저장이 끝난 후 사진을 추가해 주세요.',true);
+    photoState.activeMomentId=momentId;
+    $('#growthPhotoContext').textContent=`${moment.date} · ${moment.title}`;
+    $('#growthPhotoFiles').value='';$('#growthPhotoFileCount').textContent='갤러리에서 사진을 선택해 주세요.';
+    photoModalError('');photoRenderEditor();$('#growthPhotoEditor').showModal();
+    if(!photoState.loaded)void photoRefresh();
+  }
+  function photoRenderEditor(){
+    const grid=$('#growthPhotoEditorList');grid.replaceChildren();
+    const moment=photoMoment(photoState.activeMomentId)||growthState.serverMoments.find(m=>m.id===photoState.activeMomentId);
+    const files=photoForMoment(photoState.activeMomentId);
+    files.forEach(p=>grid.append(photoThumb(p,moment)));
+    $('#growthPhotoUpload').disabled=photoState.busy||files.length>=5||!photoState.loaded;
+    if(files.length>=5)$('#growthPhotoFileCount').textContent='사진 5장이 등록돼 있어요. 다른 사진을 추가하려면 기존 사진을 삭제하세요.';
+  }
+  async function photoJpeg(file){
+    if(!file||(!/^image\//.test(file.type)&&! /\.(jpg|jpeg|png|webp|heic|heif)$/i.test(file.name)))throw new Error('사진 파일을 선택하세요.');
+    if(file.size>35*1024*1024)throw new Error('원본 사진이 너무 큽니다(최대 35MB).');
+    const original=URL.createObjectURL(file);let image;
+    try{
+      image=new Image();image.decoding='async';image.src=original;
+      await new Promise((resolve,reject)=>{if(image.complete&&image.naturalWidth){resolve();return;}
+        image.onload=resolve;image.onerror=()=>reject(new Error('이 사진 형식을 열 수 없습니다. JPEG/PNG로 변환한 뒤 다시 시도해 주세요.'));});
+      if(!image.naturalWidth||!image.naturalHeight)throw new Error('사진 크기를 확인할 수 없습니다.');
+      const toBlob=(edge,quality)=>new Promise((resolve,reject)=>{
+        const scale=Math.min(1,edge/Math.max(image.naturalWidth,image.naturalHeight));
+        const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.naturalWidth*scale));canvas.height=Math.max(1,Math.round(image.naturalHeight*scale));
+        const ctx=canvas.getContext('2d');if(!ctx){reject(new Error('사진 변환을 지원하지 않는 브라우저입니다.'));return;}
+        ctx.fillStyle='#FFFFFF';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(image,0,0,canvas.width,canvas.height);
+        canvas.toBlob(b=>b?resolve(b):reject(new Error('사진 압축에 실패했습니다.')),'image/jpeg',quality);
+      });
+      let output=null;
+      for(const [edge,quality] of [[1280,.78],[1024,.67],[840,.58],[720,.48]]){
+        output=await toBlob(edge,quality);if(output.size<=600000)break;
+      }
+      if(output.size>600000)throw new Error('사진 용량을 줄이지 못했습니다. 작은 이미지를 선택해 주세요.');
+      const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result||''));reader.onerror=()=>reject(new Error('사진 읽기에 실패했습니다.'));reader.readAsDataURL(output);});
+      if(!data.startsWith('data:image/jpeg;base64,'))throw new Error('사진 형식 변환에 실패했습니다.');
+      return data.split(',')[1];
+    }finally{URL.revokeObjectURL(original);}
+  }
+  async function photoConfirm(id,exists){
+    let lastError=null;
+    for(const ms of [0,450,1100,2000,3000]){
+      if(ms)await new Promise(done=>setTimeout(done,ms));
+      try{const data=await photoRead();if(data.some(p=>p.id===id)===exists){photoApply(data);return true;}}
+      catch(e){lastError=e;}
+    }
+    throw lastError||new Error('사진 저장 확인이 지연되고 있습니다. 새로고침 후 확인하세요.');
+  }
+  async function photoUpload(){
+    if(photoState.busy)return;
+    const momentId=photoState.activeMomentId;
+    if(!photoState.loaded){photoModalError('먼저 사진 목록을 새로고침해 주세요.');return;}
+    const chosen=[...$('#growthPhotoFiles').files];
+    if(!chosen.length){photoModalError('업로드할 사진을 선택해 주세요.');return;}
+    if(photoForMoment(momentId).length+chosen.length>5){photoModalError('성장일기 한 건당 사진은 최대 5장입니다.');return;}
+    if(!growthState.serverMoments.some(r=>r.id===momentId)){photoModalError('성장일기 저장 완료 후 다시 시도해 주세요.');return;}
+    photoState.busy=true;photoModalError('');$('#growthPhotoUpload').disabled=true;
+    try{
+      for(let i=0;i<chosen.length;i++){
+        $('#growthPhotoFileCount').textContent=`${i+1}/${chosen.length} · 사진 변환·업로드 중…`;
+        const base64=await photoJpeg(chosen[i]),id=photoNewId();
+        let postError=null;
+        try{await sendMutation('photoAdd',{id,momentId,base64});}catch(e){postError=e;}
+        try{await photoConfirm(id,true);}catch(e){throw postError||e;}
+      }
+      $('#growthPhotoFiles').value='';
+      $('#growthPhotoFileCount').textContent=`선택한 ${chosen.length}장 업로드 완료 · 다른 기기에서도 확인할 수 있어요.`;
+      photoStatus('사진 업로드 완료 · 두 기기에 공유됩니다.');
+    }catch(e){photoModalError('업로드/저장 확인 실패: '+e.message+' 사진 목록을 새로고침한 뒤 중복 여부를 확인해 주세요.');}
+    finally{photoState.busy=false;photoRenderEditor();}
+  }
+  async function photoOpenViewer(id){
+    const photo=photoState.photos.find(p=>p.id===id);if(!photo)return;
+    photoState.activePhotoId=id;
+    const moment=photoMoment(photo.momentId);
+    $('#growthPhotoViewerCaption').textContent=moment?`${moment.date} · ${moment.title}`:'성장 사진';
+    $('#growthPhotoViewerError').hidden=true;
+    const surface=$('#growthPhotoViewerImage');surface.replaceChildren();careLine(surface,'p','growth-hint','사진 불러오는 중…');
+    $('#growthPhotoDelete').disabled=false;
+    $('#growthPhotoViewer').showModal();
+    try{const url=await photoLoad(id);if(!$('#growthPhotoViewer').open||photoState.activePhotoId!==id)return;
+      const img=document.createElement('img');img.src=url;img.alt=moment?.title||'토리 성장 사진';surface.replaceChildren(img);
+    }catch(e){if(photoState.activePhotoId===id){surface.replaceChildren();careLine(surface,'p','growth-error',e.message);}}
+  }
+  async function photoDelete(){
+    const id=photoState.activePhotoId;if(!id||photoState.busy)return;
+    if(!window.confirm('이 사진을 공유 앨범에서 삭제하고 Google Drive 휴지통으로 이동할까요?'))return;
+    photoState.busy=true;$('#growthPhotoDelete').disabled=true;
+    try{let postError=null;try{await sendMutation('photoDelete',{id});}catch(e){postError=e;}
+      try{await photoConfirm(id,false);}catch(e){throw postError||e;}
+      $('#growthPhotoViewer').close();photoStatus('사진을 삭제했습니다.');
+    }catch(e){const el=$('#growthPhotoViewerError');el.hidden=false;el.textContent='삭제 확인 실패: '+e.message;}
+    finally{photoState.busy=false;$('#growthPhotoDelete').disabled=false;}
+  }
+  function photoAttach(){
+    $('#growthPhotoRefresh').addEventListener('click',()=>photoRefresh());
+    $('#growthPhotoMonth').addEventListener('change',e=>{photoState.month=e.target.value;photoRenderAlbum();});
+    $('#growthPhotoCancel').addEventListener('click',()=>{if(!photoState.busy)$('#growthPhotoEditor').close();});
+    $('#growthPhotoEditor').addEventListener('cancel',e=>{if(photoState.busy)e.preventDefault();});
+    $('#growthPhotoFiles').addEventListener('change',e=>{const files=[...e.target.files];$('#growthPhotoFileCount').textContent=files.length?`${files.length}장 선택됨 · 사진은 업로드 전에 자동 압축됩니다.`:'사진을 선택해 주세요.';});
+    $('#growthPhotoForm').addEventListener('submit',e=>{e.preventDefault();void photoUpload();});
+    $('#growthPhotoViewerClose').addEventListener('click',()=>$('#growthPhotoViewer').close());
+    $('#growthPhotoDelete').addEventListener('click',()=>void photoDelete());
   }
 
   $('#listTab').addEventListener('click',()=>setTab('list'));
@@ -2244,6 +2477,7 @@
     else if(state.connected)void loadFamilyEvents();
     if(careState.queue.length)void careDrain();else if(state.connected)void careRefresh();
     if(growthState.queue.length)void growthDrain();else if(state.connected&&careMode==='growth')void growthRefresh();
+    if(state.connected&&careMode==='growth')void photoRefresh();
   });
   // Returning to the app checks for changes made by the other parent.
   // Cached entries stay visible while the remote check runs.
@@ -2255,6 +2489,7 @@
     else if(Date.now()-careState.lastSync>=FAMILY_RESUME_SYNC_MS)void careRefresh();
     if(growthState.queue.length)void growthDrain();
     else if(careMode==='growth'&&Date.now()-growthState.lastSync>=FAMILY_RESUME_SYNC_MS)void growthRefresh();
+    if(careMode==='growth'&&Date.now()-photoState.lastSync>=FAMILY_RESUME_SYNC_MS)void photoRefresh();
   });
   $('#settingsForm').addEventListener('submit',e=>{
     e.preventDefault();
@@ -2278,7 +2513,8 @@
     safeRemove(localStorage,growthCacheKey);safeRemove(localStorage,growthJournalKey);
     state.familyQueue=[];state.familySavedEvents=[];state.familyServerEvents=[];state.familyLoaded=false;
     careState.queue=[];careState.server=[];careState.events=[];careState.loaded=false;careState.lastSync=0;
-    growthState.queue=[];growthState.serverMeasures=[];growthState.serverMoments=[];growthState.loaded=false;growthRebuild();renderCare();
+    growthState.queue=[];growthState.serverMeasures=[];growthState.serverMoments=[];growthState.loaded=false;growthRebuild();
+    photoClear();renderCare();
     state.secret='';state.items=[];state.connected=false;state.cached=false;state.pendingChecks.clear();
     state.pendingEdits.clear();state.mutationQueue=[];state.mutationFailed=false;updateQueueView();
     $('#secretInput').value='';
@@ -2325,6 +2561,7 @@
   careAttach();
   growthRestore();
   growthAttach();
+  photoAttach();
   updateQueueView();
   updateConnectedView();
   updateFamilySyncUI();

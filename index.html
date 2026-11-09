@@ -18,9 +18,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=29">
+  <link rel="stylesheet" href="style.css?v=31">
   <script src="config.js" defer></script>
-  <script src="app.js?v=30" defer></script>
+  <script src="app.js?v=31" defer></script>
 </head>
 <body>
 <main class="wrap">
@@ -311,8 +311,15 @@
         </section>
         <section class="care-panel growth-diary">
           <div class="care-section-title"><h3>토리의 성장 순간</h3><button type="button" class="growth-small-add" id="growthMomentMore">＋ 추가</button></div>
-          <p class="growth-hint">첫 미소, 첫 뒤집기, 첫걸음 등 원하는 순간을 자유롭게 기록할 수 있어요.</p>
+          <p class="growth-hint">첫 미소, 첫 뒤집기, 첫걸음 등 원하는 순간을 기록하고, 사진을 최대 5장까지 함께 남겨보세요.</p>
           <div class="growth-history-list" id="growthMomentList"></div>
+        </section>
+        <section class="care-panel growth-photo-album" aria-labelledby="growthPhotoAlbumHeading">
+          <div class="care-section-title"><h3 id="growthPhotoAlbumHeading">📷 월별 성장 앨범</h3><button type="button" class="growth-small-add" id="growthPhotoRefresh">↻ 새로고침</button></div>
+          <label class="growth-photo-month-label">앨범 월 <select id="growthPhotoMonth" aria-label="월별 성장 앨범 월 선택"></select></label>
+          <p class="growth-photo-notice" id="growthPhotoStatus" role="status" aria-live="polite">사진 목록을 확인하고 있어요.</p>
+          <div id="growthPhotoAlbum" class="growth-photo-grid" aria-label="월별 성장 사진"></div>
+          <p class="growth-hint">사진은 공개 링크가 아닌 비공개 Google Drive 폴더에 보관합니다. 동일한 SECRET을 사용하는 아빠·엄마만 앱에서 확인할 수 있으며, 사용 중인 기기에는 사진 파일을 영구 저장하지 않습니다.</p>
         </section>
       </div><!-- careGrowthPane -->
     </div>
@@ -366,9 +373,32 @@
     <label>성장 순간<select id="growthMomentType"><option>탄생일</option><option>첫 미소</option><option>목 가누기</option><option>첫 옹알이</option><option>첫 뒤집기</option><option>혼자 앉기</option><option>첫니</option><option>첫걸음</option><option>100일</option><option>기타</option></select></label>
     <label>제목<input id="growthMomentName" type="text" required maxlength="80" placeholder="예: 처음으로 환하게 웃었어요"></label>
     <label>우리 가족의 메모 (선택)<textarea id="growthMomentNote" maxlength="400" rows="4" placeholder="그날 있었던 소중한 이야기를 적어 주세요"></textarea></label>
+    <p class="growth-hint">사진은 성장 순간을 저장한 뒤 목록의 ‘📷 사진 관리’ 버튼에서 등록합니다.</p>
     <p id="growthMomentError" class="growth-error" role="alert" hidden></p>
     <button type="submit" class="primary">성장 순간 저장</button><button id="growthMomentDelete" type="button" class="outline-danger" hidden>이 성장 순간 삭제</button>
   </form>
+</dialog>
+
+<dialog id="growthPhotoEditor" aria-labelledby="growthPhotoTitle">
+  <form id="growthPhotoForm">
+    <div class="dialog-head"><h2 id="growthPhotoTitle">성장 사진 관리</h2><button id="growthPhotoCancel" type="button" class="close" aria-label="닫기">✕</button></div>
+    <p id="growthPhotoContext" class="growth-photo-context"></p>
+    <p class="growth-hint">사진을 최대 5장까지 등록할 수 있어요. 사진은 용량과 위치 정보 등을 줄인 JPEG로 변환한 뒤 비공개 Drive에 저장됩니다.</p>
+    <div id="growthPhotoEditorList" class="growth-photo-grid growth-photo-editor-grid"></div>
+    <label class="growth-photo-file-label">사진 선택 (여러 장 가능)
+      <input id="growthPhotoFiles" type="file" accept="image/*,.heic,.heif" multiple>
+    </label>
+    <p id="growthPhotoFileCount" class="growth-hint">갤러리에서 사진을 선택해 주세요.</p>
+    <p id="growthPhotoError" role="alert" class="growth-error" hidden></p>
+    <button id="growthPhotoUpload" type="submit" class="primary">선택한 사진 업로드</button>
+  </form>
+</dialog>
+<dialog id="growthPhotoViewer" class="growth-photo-viewer" aria-labelledby="growthPhotoViewerTitle">
+  <div class="dialog-head"><h2 id="growthPhotoViewerTitle">성장 사진</h2><button type="button" id="growthPhotoViewerClose" class="close" aria-label="닫기">✕</button></div>
+  <div id="growthPhotoViewerImage" class="growth-photo-viewer-image"></div>
+  <p id="growthPhotoViewerCaption" class="growth-photo-caption"></p>
+  <p id="growthPhotoViewerError" class="growth-error" role="alert" hidden></p>
+  <button type="button" id="growthPhotoDelete" class="outline-danger">사진 삭제</button>
 </dialog>
 
 <dialog id="careEditor" aria-labelledby="careEditorTitle">
