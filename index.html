@@ -18,9 +18,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=32">
+  <link rel="stylesheet" href="style.css?v=33">
   <script src="config.js" defer></script>
-  <script src="app.js?v=31.4" defer></script>
+  <script src="app.js?v=33" defer></script>
 </head>
 <body>
 <main class="wrap">
@@ -324,10 +324,17 @@
           <div class="care-section-title"><h3>토리의 성장 순간</h3><button type="button" class="growth-small-add" id="growthMomentMore">＋ 추가</button></div>
           <p class="growth-hint">첫 미소, 첫 뒤집기, 첫걸음 등 원하는 순간을 기록하고, 사진을 최대 5장까지 함께 남겨보세요.</p>
           <div class="growth-history-list" id="growthMomentList"></div>
+          <div class="growth-moment-controls">
+            <span id="growthMomentCount" class="growth-moment-count" aria-live="polite"></span>
+            <button type="button" id="growthMomentToggle" class="growth-moment-toggle" aria-expanded="false" hidden>전체 보기</button>
+          </div>
         </section>
         <section class="care-panel growth-photo-album" aria-labelledby="growthPhotoAlbumHeading">
-          <div class="care-section-title"><h3 id="growthPhotoAlbumHeading">📷 월별 성장 앨범</h3><button type="button" class="growth-small-add" id="growthPhotoRefresh">↻ 새로고침</button></div>
-          <label class="growth-photo-month-label">앨범 월 <select id="growthPhotoMonth" aria-label="월별 성장 앨범 월 선택"></select></label>
+          <div class="care-section-title"><h3 id="growthPhotoAlbumHeading">📷 토리의 성장앨범</h3><button type="button" class="growth-small-add" id="growthPhotoRefresh">↻ 새로고침</button></div>
+          <div class="growth-photo-filter-row">
+            <label class="growth-photo-month-label" for="growthPhotoMonth">사진 보기 <select id="growthPhotoMonth" aria-label="성장앨범 전체 또는 월별 사진 선택"><option value="">전체 사진</option></select></label>
+            <span id="growthPhotoCount" class="growth-photo-count" aria-live="polite"></span>
+          </div>
           <p class="growth-photo-notice" id="growthPhotoStatus" role="status" aria-live="polite">사진 목록을 확인하고 있어요.</p>
           <div id="growthPhotoAlbum" class="growth-photo-grid" aria-label="월별 성장 사진"></div>
           <p class="growth-hint">사진은 공개 링크가 아닌 비공개 Google Drive 폴더에 보관합니다. 동일한 SECRET을 사용하는 아빠·엄마만 앱에서 확인할 수 있으며, 사용 중인 기기에는 사진 파일을 영구 저장하지 않습니다.</p>

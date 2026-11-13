@@ -1996,7 +1996,7 @@
   const growthCacheKey='bp-growth-cache-v30';
   const growthJournalKey='bp-growth-pending-v30';
   const growthMomentTypes=['탄생일','첫 미소','목 가누기','첫 옹알이','첫 뒤집기','혼자 앉기','첫니','첫걸음','100일','기타'];
-  const growthState={measurements:[],moments:[],serverMeasures:[],serverMoments:[],queue:[],loaded:false,loading:false,busy:false,failed:false,revision:0,seq:0,lastSync:0,metric:'weight',editingId:null,editingKind:null};
+  const growthState={measurements:[],moments:[],serverMeasures:[],serverMoments:[],queue:[],loaded:false,loading:false,busy:false,failed:false,revision:0,seq:0,lastSync:0,metric:'weight',editingId:null,editingKind:null,showAllMoments:false};
   function growthNewId(kind){return (kind==='measure'?'GRM-':'GRJ-')+Array.from(crypto.getRandomValues(new Uint8Array(8)),b=>b.toString(16).padStart(2,'0')).join('').toUpperCase();}
   function growthDay(value){return typeof value==='string'&&parseLocalDate(value)?value:'';}
   function growthNum(v){if(v==null||v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null;}
@@ -2221,8 +2221,15 @@
     const measures=$('#growthMeasureList'),moments=$('#growthMomentList');measures.replaceChildren();moments.replaceChildren();
     if(!growthState.measurements.length)growthEmpty(measures,growthState.loaded?'아직 측정 기록이 없어요.':'기록을 불러오는 중입니다.');
     else growthState.measurements.slice(0,30).forEach(r=>measures.append(growthEntry('measure',r)));
-    if(!growthState.moments.length)growthEmpty(moments,growthState.loaded?'첫 성장 순간을 기록해 보세요.':'기록을 불러오는 중입니다.');
-    else growthState.moments.slice(0,50).forEach(r=>moments.append(growthEntry('moment',r)));
+    const momentCount=growthState.moments.length;
+    const visibleMoments=growthState.showAllMoments?growthState.moments:growthState.moments.slice(0,3);
+    if(!momentCount)growthEmpty(moments,growthState.loaded?'첫 성장 순간을 기록해 보세요.':'기록을 불러오는 중입니다.');
+    else visibleMoments.forEach(r=>moments.append(growthEntry('moment',r)));
+    const momentToggle=$('#growthMomentToggle');
+    momentToggle.hidden=momentCount<=3;
+    momentToggle.textContent=growthState.showAllMoments?'최근 3개만 보기':`전체 보기 (${momentCount}개)`;
+    momentToggle.setAttribute('aria-expanded',String(growthState.showAllMoments&&momentCount>3));
+    $('#growthMomentCount').textContent=!momentCount?'':momentCount<=3?`전체 ${momentCount}개`:growthState.showAllMoments?`전체 ${momentCount}개 표시 중`:`최근 3개 · 전체 ${momentCount}개`;
     photoRenderAlbum();
   }
   function growthOpenEditor(kind,record=null){
@@ -2294,6 +2301,10 @@
     $('#growthAddMoment').addEventListener('click',()=>growthOpenEditor('moment'));
     $('#growthMeasureMore').addEventListener('click',()=>growthOpenEditor('measure'));
     $('#growthMomentMore').addEventListener('click',()=>growthOpenEditor('moment'));
+    $('#growthMomentToggle').addEventListener('click',()=>{
+      growthState.showAllMoments=!growthState.showAllMoments;
+      renderGrowth();
+    });
     $('#growthRefreshBtn').addEventListener('click',()=>{if(growthState.queue.length)void growthDrain();else void growthRefresh();void photoRefresh();});
     $('#growthRetryBtn').addEventListener('click',()=>growthDrain());
     $('#growthMeasureCancel').addEventListener('click',()=>$('#growthMeasureEditor').close());
@@ -2401,14 +2412,25 @@
     const select=$('#growthPhotoMonth'),album=$('#growthPhotoAlbum');if(!select||!album)return;
     const available=photoState.photos.map(photo=>({photo,moment:photoMoment(photo.momentId)})).filter(x=>x.moment);
     const months=[...new Set(available.map(x=>x.moment.date.slice(0,7)))].sort().reverse();
-    if(!months.includes(photoState.month))photoState.month=months[0]||'';
+    // An empty month means "all photos". Keep the user's chosen month after sync,
+    // but fall back to all photos if that month no longer has any photos.
+    if(photoState.month&&!months.includes(photoState.month))photoState.month='';
     select.replaceChildren();
-    if(!months.length)select.add(new Option('사진 없음',''));
-    else for(const month of months)select.add(new Option(month.slice(0,4)+'년 '+Number(month.slice(5))+'월',month));
+    select.add(new Option(`전체 사진 (${available.length}장)`,''));
+    for(const month of months){
+      const count=available.filter(x=>x.moment.date.startsWith(month)).length;
+      select.add(new Option(`${month.slice(0,4)}년 ${Number(month.slice(5))}월 (${count}장)`,month));
+    }
     select.value=photoState.month;select.disabled=!months.length;
     album.replaceChildren();
-    const group=available.filter(x=>x.moment.date.startsWith(photoState.month)).sort((a,b)=>b.moment.date.localeCompare(a.moment.date)||b.photo.created.localeCompare(a.photo.created));
-    if(!group.length){growthEmpty(album,photoState.loaded?'아직 등록된 사진이 없어요. 성장 순간에서 사진을 추가해 보세요.':'공유 앨범을 불러오는 중입니다.');return;}
+    const group=(photoState.month?available.filter(x=>x.moment.date.startsWith(photoState.month)):available)
+      .sort((a,b)=>b.moment.date.localeCompare(a.moment.date)||b.photo.created.localeCompare(a.photo.created)||b.photo.id.localeCompare(a.photo.id));
+    const countEl=$('#growthPhotoCount');
+    if(countEl)countEl.textContent=photoState.month?`선택한 달 · ${group.length}장`:`전체 ${group.length}장`;
+    if(!group.length){
+      const message=!photoState.loaded?'공유 앨범을 불러오는 중입니다.':photoState.month?'이 달에는 등록된 사진이 없어요.':'아직 등록된 사진이 없어요. 성장 순간에서 사진을 추가해 보세요.';
+      growthEmpty(album,message);return;
+    }
     group.forEach(({photo,moment})=>album.append(photoThumb(photo,moment)));
   }
   function photoModalError(message){const el=$('#growthPhotoError');el.textContent=message;el.hidden=!message;}
@@ -2728,7 +2750,7 @@
     safeRemove(localStorage,growthCacheKey);safeRemove(localStorage,growthJournalKey);
     state.familyQueue=[];state.familySavedEvents=[];state.familyServerEvents=[];state.familyLoaded=false;
     careState.queue=[];careState.server=[];careState.events=[];careState.loaded=false;careState.lastSync=0;
-    growthState.queue=[];growthState.serverMeasures=[];growthState.serverMoments=[];growthState.loaded=false;growthRebuild();
+    growthState.queue=[];growthState.serverMeasures=[];growthState.serverMoments=[];growthState.loaded=false;growthState.showAllMoments=false;growthRebuild();
     photoClear();renderCare();
     state.secret='';state.items=[];state.connected=false;state.cached=false;state.pendingChecks.clear();
     state.pendingEdits.clear();state.mutationQueue=[];state.mutationFailed=false;updateQueueView();
